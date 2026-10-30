@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ST16.Assembler\ST16.Assembler.csproj" />
     <ProjectReference Include="..\ST16.VM\ST16.VM.csproj" />
   </ItemGroup>
 

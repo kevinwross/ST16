@@ -1,3 +1,4 @@
+using ST16.Assembler;
 using ST16.VM;
 
 internal static class Program
@@ -19,11 +20,10 @@ internal static class Program
         {
             case "vm": return Vm(rest);
             case "cli": return Cli(rest);
-            case "as":
-            case "ds":
+            case "as": return Assemble(rest);
+            case "ds": return Disassemble(rest);
             case "cc":
-                Console.Error.WriteLine(
-                    $"{cmd}: not yet implemented (assembler/disassembler: phase 3; C compiler: phase 3.5)");
+                Console.Error.WriteLine($"{cmd}: not yet implemented (C compiler: phase 3.5)");
                 return 1;
             default:
                 Console.Error.WriteLine($"ST16: unknown subcommand '{cmd}' (run `st16 --help`)");
@@ -39,8 +39,9 @@ internal static class Program
             Usage:
               st16 vm <file.bin> [--limit N]   Run a binary image (little-endian u16 words at 0x0000), console I/O.
               st16 cli [file.bin]              Interactive debugger REPL.
-              st16 as <in.st16> -o <out.bin>   Assemble (phase 3 — not yet implemented)
-              st16 ds <in.bin>                 Disassemble (phase 3 — not yet implemented)
+              st16 as <in.st16> [-o out.bin] [-d out.st16d]
+                                              Assemble source to binary + debug file.
+              st16 ds <in.bin> [-d in.st16d]   Disassemble a binary (labels from .st16d when given).
               st16 cc <in.c> -o <out.st16>     Compile C to ST16 assembly (phase 3.5 — not yet implemented)
               st16                             (default; GUI arrives in phase 5)
 
@@ -117,6 +118,150 @@ internal static class Program
     {
         Console.WriteLine(text);
         return code;
+    }
+
+    // ---------------- st16 as ----------------
+
+    private static int Assemble(string[] args)
+    {
+        string? input = null, binOut = null, debugOut = null;
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] is "-o" or "--output")
+            {
+                if (++i >= args.Length) return UsageAs();
+                binOut = args[i];
+            }
+            else if (args[i] is "-d" or "--debug")
+            {
+                if (++i >= args.Length) return UsageAs();
+                debugOut = args[i];
+            }
+            else if (args[i] is "--help" or "-h")
+            {
+                Console.WriteLine("Usage: st16 as <in.st16> [-o out.bin] [-d out.st16d]");
+                return 0;
+            }
+            else if (input is null && !args[i].StartsWith("-"))
+            {
+                input = args[i];
+            }
+            else
+            {
+                Console.Error.WriteLine($"as: unexpected argument '{args[i]}'");
+                return 2;
+            }
+        }
+        if (input is null) return UsageAs();
+        if (!File.Exists(input))
+        {
+            Console.Error.WriteLine($"as: cannot read '{input}'");
+            return 2;
+        }
+
+        string text = File.ReadAllText(input);
+        var result = Assembler.Assemble(Path.GetFileName(input), text);
+
+        foreach (var d in result.Diagnostics)
+            Console.Error.WriteLine($"{input} {d}");
+
+        if (!result.Success)
+        {
+            int errors = result.Diagnostics.Count(d => d.Level == "error");
+            Console.Error.WriteLine($"{input}: assembly failed ({errors} error(s))");
+            return 1;
+        }
+
+        string baseName = Path.Combine(
+            Path.GetDirectoryName(input) ?? ".",
+            Path.GetFileNameWithoutExtension(input));
+        string bin = binOut ?? baseName + ".bin";
+        string dbg = debugOut ?? baseName + ".st16d";
+
+        try
+        {
+            result.WriteBin(bin);
+            result.WriteDebug(dbg);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"as: cannot write output ({ex.Message})");
+            return 2;
+        }
+
+        Console.WriteLine($"assembled {result.Words.Length} words -> {bin} (+ {dbg})");
+        return 0;
+    }
+
+    private static int UsageAs()
+    {
+        Console.Error.WriteLine("Usage: st16 as <in.st16> [-o out.bin] [-d out.st16d]");
+        return 2;
+    }
+
+    // ---------------- st16 ds ----------------
+
+    private static int Disassemble(string[] args)
+    {
+        string? input = null, debugIn = null;
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] is "-d" or "--debug")
+            {
+                if (++i >= args.Length)
+                {
+                    Console.Error.WriteLine("Usage: st16 ds <in.bin> [-d in.st16d]");
+                    return 2;
+                }
+                debugIn = args[i];
+            }
+            else if (args[i] is "--help" or "-h")
+            {
+                Console.WriteLine("Usage: st16 ds <in.bin> [-d in.st16d]");
+                return 0;
+            }
+            else if (input is null && !args[i].StartsWith("-"))
+            {
+                input = args[i];
+            }
+            else
+            {
+                Console.Error.WriteLine($"ds: unexpected argument '{args[i]}'");
+                return 2;
+            }
+        }
+        if (input is null)
+        {
+            Console.Error.WriteLine("Usage: st16 ds <in.bin> [-d in.st16d]");
+            return 2;
+        }
+
+        var (words, error) = TryReadImage(input);
+        if (error is not null)
+        {
+            Console.Error.WriteLine(error);
+            return 2;
+        }
+
+        St16dDebugFile? debug = null;
+        if (debugIn is not null)
+        {
+            try
+            {
+                debug = St16dDebugFile.ReadJson(debugIn);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"ds: cannot read '{debugIn}' ({ex.Message})");
+                return 2;
+            }
+        }
+
+        var dis = Disassembler.Disassemble(words, 0, debug);
+        foreach (var d in dis.Diagnostics)
+            Console.Error.WriteLine($"{input} {d}");
+        Console.Write(dis.Assembly);
+        return 0;
     }
 
     // ---------------- st16 cli ----------------
