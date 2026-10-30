@@ -11,8 +11,8 @@ and when a phase is done.
 | Phase | Deliverable | Project | Status |
 |---|---|---|---|
 | 1 | ISA specification v1.0 | `docs/` | ✅ complete (draft, under review) |
-| 2 | Virtual Machine with debugging hooks + CLI | `ST16.VM`, `ST16.App` | pending |
-| 3 | Assembler, disassembler, `.st16d` debug symbols | `ST16.Assembler` | pending |
+| 2 | Virtual Machine with debugging hooks + CLI | `ST16.VM`, `ST16.App` | ✅ complete |
+| 3 | Assembler, disassembler, `.st16d` debug symbols | `ST16.Assembler`, `ST16.Disassembler` | ✅ complete |
 | 3.5 | C compiler (core C subset) | `ST16.CC` | pending |
 | 4 | Sample program library | `samples/` | pending |
 | 5 | WPF debug GUI (combined source + disassembly) | `ST16.Gui` | pending — **must have** |

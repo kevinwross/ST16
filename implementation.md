@@ -125,29 +125,29 @@ byte-identical.
 
 ### Assembler
 
-- [ ] `src/ST16.Assembler` project; lexer: labels, mnemonics (case-insensitive), decimal/`0x`/`0b` literals, directives, `;` comments, line/column tracking
-- [ ] Parser for spec §8 syntax: `[label:] mnemonic [operand]`
-- [ ] Two-pass assembly: label resolution; expressions (constant, label, `label ± constant`)
-- [ ] Range checks (per erratum): `PUSH` −128…127; `JZ`/`JNZ` offset ±127 (relative to `PC+1`, hard reject — no wrap); `PUSH16`/`JMP`/`CALL` 0…65535
-- [ ] Diagnostics with line numbers: undefined label, duplicate label, operand out of range, branch offset out of range, `.org` overlap, beyond RAM
-- [ ] `.bin` output: little-endian 16-bit words
-- [ ] `.st16d` v1 (JSON, self-contained, source embedded): `sources[]` (full text), `lines[]` (address → file/line, one per instruction and data word; two-word instructions map the header address), `symbols[]` (label/function/data; a label targeted by `CALL` is a `function`), `functions[]` (entry, end), `sections[]` (origin, length)
+- [x] `src/ST16.Assembler` project; lexer: labels, mnemonics (case-insensitive), decimal/`0x`/`0b` literals, directives, `;` comments, line/column tracking
+- [x] Parser for spec §8 syntax: `[label:] mnemonic [operand]`
+- [x] Two-pass assembly: label resolution; expressions (constant, label, `label ± constant`)
+- [x] Range checks (per erratum): `PUSH` −128…127; `JZ`/`JNZ` offset ±127 (relative to `PC+1`, hard reject — no wrap); `PUSH16`/`JMP`/`CALL` 0…65535
+- [x] Diagnostics with line numbers: undefined label, duplicate label, operand out of range, branch offset out of range, `.org` overlap, beyond RAM
+- [x] `.bin` output: little-endian 16-bit words
+- [x] `.st16d` v1 (JSON, self-contained, source embedded): `sources[]` (full text), `lines[]` (address → file/line, one per instruction and data word; two-word instructions map the header address), `symbols[]` (label/function/data; a label targeted by `CALL` is a `function`), `functions[]` (entry, end), `sections[]` (origin, length)
 
 ### Disassembler
 
-- [ ] Binary → annotated assembly: offsets, mnemonics, operand interpretation, branch targets resolved to labels when `.st16d` present, cross-reference hints (call sites ↔ functions, jumps ↔ labels)
+- [x] Binary → annotated assembly: offsets, mnemonics, operand interpretation, branch targets resolved to labels when `.st16d` present, cross-reference hints (call sites ↔ functions, jumps ↔ labels)
 
 ### CLI
 
-- [ ] `st16 as` subcommand: `st16 as in.st16 -o out.bin -d out.st16d` (defaults: inputs' directory, `<name>.bin` / `<name>.st16d`)
-- [ ] `st16 ds` subcommand: `st16 ds out.bin [-d in.st16d]`
+- [x] `st16 as` subcommand: `st16 as in.st16 -o out.bin -d out.st16d` (defaults: inputs' directory, `<name>.bin` / `<name>.st16d`)
+- [x] `st16 ds` subcommand: `st16 ds out.bin [-d in.st16d]`
 
 ### Tests
 
-- [ ] Round-trip identity: assemble → disassemble → assemble produces a byte-identical binary
-- [ ] Spec §9.3 encoding table verified instruction by instruction (post-erratum); §9 examples assemble to the documented words
-- [ ] Assembler error cases: every diagnostic class, correct line numbers
-- [ ] `.st16d` schema validation: every instruction address has a line entry; embedded source round-trips
+- [x] Round-trip identity: assemble → disassemble → assemble produces a byte-identical binary
+- [x] Spec §9.3 encoding table verified instruction by instruction (post-erratum); §9 examples assemble to the documented words
+- [x] Assembler error cases: every diagnostic class, correct line numbers
+- [x] `.st16d` schema validation: every instruction address has a line entry; embedded source round-trips
 
 ---
 
@@ -156,6 +156,69 @@ byte-identical.
 **Definition of done:** a recursive C program using arrays and pointers
 compiles, runs correctly on the VM, and its `.st16d` maps every instruction
 to a `.c` line.
+
+### Design contract (settled 2026-10-30)
+
+**Target profile.** `int`/`short` are 16-bit signed; `char` is signed and
+stored in the low 8 bits of a word (sign-extended on load: `PUSH 8; SLL;
+PUSH 8; SLR`); `unsigned char` loads are masked (`PUSH16 0x00FF; AND`).
+Every object (scalar or array element, incl. `char`) occupies exactly one
+16-bit word, so pointer arithmetic is word-granular. `sizeof` reports the C
+standard values (`int`/`short` = 2, `char` = 1); layout is uniformly
+1 word/object (documented divergence, like a 16-bit C target).
+
+**Memory layout (fixed).**
+
+| Region | Address | Contents |
+|---|---|---|
+| code | 0x0000… | entry stub, functions |
+| free | …0xDFFF | — |
+| frame area | ≤ 0xDFFF | grows down from 0xDFFF |
+| SP word | 0xE000 | frame top; initial value 0xE000 (a data word) |
+| globals | 0xE001…0xEFFF | globals + string literals (4094 words) |
+
+Overflow of code (>0x9FFF) or globals (>0xEFFF) is a compile error.
+
+**Entry stub.** The compiler emits, at 0x0000: `CALL main; HALT` (main's
+return value is left on the stack and discarded). Missing `main` or a
+`main` with parameters is an error.
+
+**Calling convention (JVM-style).** Arguments pushed right-to-left on the
+operand stack (values, 16-bit); the **callee** cleans up (pops the
+arguments during its prologue, materializing each into its frame slot);
+the result is returned on top. Every function's frame starts with its
+parameter slots (slot 0 = first parameter), so `&param` is legal.
+
+**Frame model.** Per-function RAM frame allocated off the SP word at 0xE000.
+`frameSize = params + locals + spills`. Prologue:
+`SP ← [SP] − frameSize`; then pop each argument into its slot (top first,
+i.e. last parameter into slot p−1 down to slot 0). Epilogue / every
+`return`: `SP ← [SP] + frameSize` (old SP = new SP + frameSize — no saved
+slot needed), then RET. Locals at slots p..p+l−1; spill slots after.
+`LOAD local i` = `PUSH16 0xE000; LOAD; PUSH i; ADD; LOAD`;
+`STORE local i` = (value on stack) `PUSH16 0xE000; LOAD; PUSH i; ADD; STORE`.
+Globals are direct: `PUSH16 <addr>; LOAD` / `PUSH16 <addr>; STORE`.
+
+**Operand-stack spilling.** The codegen tracks current stack depth; max
+allowed depth is 28 (safety margin under the VM's 32). Before pushing, if
+the depth limit would be exceeded the oldest stack value is spilled to the
+next frame spill slot (`STORE`) and reloaded (`LOAD`) exactly when that
+depth level is reached again — visible in `-S` output as
+`PUSH16 0xE000; LOAD; PUSH <slot>; ADD; STORE/LOAD` pairs.
+
+**Line markers → .st16d post-process.** The compiler emits `.asm` with a
+marker comment on its own line, `; L<line>`, before each statement/
+expression chunk of C line `<line>`. It runs the phase-3 assembler on that
+`.asm` (fileName `gen.st16`), then post-processes the resulting `.st16d`:
+`sources[]` ← the `.c` file (name + full text); each `lines[]` entry
+(address → asm line) is re-mapped to the C line of the nearest preceding
+`L` marker; `symbols[]`/`functions[]`/`sections[]` carry through unchanged
+(function labels are the C names, so call-stack display works).
+
+**Console I/O builtins.** `putchar(int c)` → `PUSH <c>; PUSH16 0xF000;
+STORE` (low byte written); `getchar()` → `PUSH16 0xF001; LOAD` (byte, or
+0xFFFF when input is exhausted). No header declaration needed; any other
+"library" call is an undefined-symbol error.
 
 ### Front end
 
@@ -274,6 +337,19 @@ devices, byte addressing, multi-cycle timing model.
 
 Most recent entries first. Entries are appended at significant
 accomplishments (a completed checklist task or a decision worth remembering).
+
+---
+
+### 2026-10-30 16:55:34 -07:00 — P3: assembler, disassembler, `st16 as`/`st16 ds`, and 141-test suite complete
+
+- **Status:** Phase 3 is done — for any PC the toolchain answers "which source line, which instruction, which function", and assemble → disassemble → assemble is byte-identical (verified by test). All P3 checkboxes are ticked. `dotnet test` also works now (see environment note).
+- **Changes:** `src/ST16.Assembler/` (new, `3acf1e8`): `St16Assembler` (two-pass: parse with line/column tracking, label registration + duplicate/undefined checks, `.org` evaluation with backwards/beyond-RAM/overlap rejection, then emission with per-instruction range checks and `.st16d` construction), `Expression` (constant / label / `label ± constant`, decimal/`0x`/`0b`, ASCII and U+2212 minus), `St16dModel` (v1 document + `ToJson`/`FromJson`). Conventions: two-word instructions map both words to the header line in `lines[]`; a `CALL`-targeted label is `function`, a label on a data word is `data`; `functions[].end` is exclusive (contiguous instruction run capped at the next function); `sections[]` are maximal contiguous written runs. `src/ST16.Disassembler/` (new, `3acf1e8`): decode by operand kind (PUSH signed decimal; JZ/JNZ absolute target; PUSH16/JMP/CALL value); unknown opcodes, non-zero reserved operand bytes, and dangling two-word headers emit verbatim `.dw`; zero runs → `.ds n` (DUP when the `.st16d` line map says code); symbol-name resolution and `CallReferences`/`BranchReferences` (JMP/JZ/JNZ only); `ToText()` is directly reassemblable. `src/ST16.App/` (`3acf1e8`): `as` (input → `<name>.bin` + `<name>.st16d`, `-o`/`-d`, exit 0/1/2) and `ds` (image → annotated assembly, `-d` for symbols, exit 0/2) subcommands.
+- **Bugs found and fixed this phase:** (1) `ST16Machine.Run` re-stopped immediately at the PC of the breakpoint it had just stopped at, so a resume executed nothing — fixed with resume-skips-current-breakpoint semantics (the stop PC is skipped on the first fetch only; `0d6d410`, P2 suite grew to 136/136 with the stepping/breakpoint/snapshot coverage that exposed it); (2) disassembler recorded every two-word instruction (incl. PUSH16 data values) in `BranchReferences` — now JMP/JZ/JNZ only (`b1065dd`).
+- **Tests:** `tests/ST16.Assembler.Tests/` (`247f26f`, 141 tests, 10 files): §9.3 encoding table for all 37 opcodes instruction-by-instruction; §9.1/§9.2 goldens word-for-word (starloop assembles to exactly the documented 25 words and runs on the VM to 10×`*`, Halted, ic 121, pc 0x0017); **round-trip byte-identity** (4 programs × with/without `.st16d`); every §8.4 diagnostic class with exact line:column and no-output-on-error; `.st16d` schema (source embedding, one line entry per written word incl. two-word header mapping, symbol kinds, sq function entry 3/end 6, `.org`-gap sections, `FromJson(ToJson())` round-trip); disassembler semantics (verbatim `.dw` cases, `.ds` runs, OrgLine, DUP via line map, cross-references, reassemblable `ToText`); directives/expressions (`.db 0x12,0x34 → 0x3412`, `label ± constant` both minus forms, lowercase mnemonics); multi-file assembly; CLI (Process-based, exit codes and default outputs); end-to-end.
+- **Environment note (supersedes the P2 note):** `dotnet test` works on this machine with `-p:_MSTestEnableParentProcessQuery=false` (the VSTest testhost's parent-process query is denied by this host's process configuration; the property disables it). Gates: `dotnet build ST16.slnx` 0 warnings / 0 errors; ST16.VM.Tests 136/136; ST16.Assembler.Tests 141/141.
+- **Remaining:** P3.5 (C compiler), P4 (samples), P5 (GUI).
+- **Next:** Phase 3.5 — `ST16.CC` (st16cc): core-C-subset front end, stack codegen with the RAM-frame model and 32-slot spilling, `.st16d` post-processing, `st16 cc` subcommand.
+- **Commits:** `3acf1e8` — P3: ST16.Assembler + ST16.Disassembler + st16 as/ds; `0d6d410` — P2: breakpoint-resume fix + test coverage (136/136); `b1065dd` — P3: BranchReferences fix; `247f26f` — P3: test suite (141 tests) (this log entry committed separately).
 
 ---
 
