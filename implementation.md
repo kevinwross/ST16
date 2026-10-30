@@ -81,39 +81,39 @@ single-step them.
 
 ### Core engine
 
-- [ ] Scaffold `ST16.slnx`: `src/ST16.VM` (class library, no UI deps), `src/ST16.App` (the `st16` executable), `tests/ST16.VM.Tests` (xUnit); baseline build green (0 warnings / 0 errors)
-- [ ] 16-bit word value type: two's complement helpers (sign-extend 8-bit per erratum, compare signed/unsigned, wrap arithmetic)
-- [ ] Memory: 61,440 words at `0x0000`–`0xEFFF`, zero-filled on reset; port range `0xF000`–`0xFFFF`
-- [ ] Configurable stacks: `OperandStack` + `CallStack`, default 32 slots, configurable depth (4–256), underflow/overflow faults
-- [ ] Machine state & configuration: `Running` / `Paused` / `Faulted` / `Halted`; stack depths; instruction-limit watchdog
-- [ ] Decoder: 6-bit opcode table (37 defined per the frozen §5 table), 1-word/2-word formats, operand interpretation (ignored / signed 8-bit / relative / absolute), `ILLOP` fault on reserved opcodes and on bits 15–14 set
-- [ ] Execute engine: fetch/decode/execute for all 37 instructions; atomic fault semantics (faulting instruction has no partial effects); 7 fault codes per spec §6
-- [ ] I/O ports: `0xF000` console out (low 8 bits), `0xF001` console in (non-blocking, `0xFFFF` when empty), `0xF002` instruction counter; `IInputSource`/`IOutputSink` abstractions so CLI/GUI/tests supply I/O
+- [x] Scaffold `ST16.slnx`: `src/ST16.VM` (class library, no UI deps), `src/ST16.App` (the `st16` executable), `tests/ST16.VM.Tests` (xUnit); baseline build green (0 warnings / 0 errors)
+- [x] 16-bit word value type: two's complement helpers (sign-extend 8-bit per erratum, compare signed/unsigned, wrap arithmetic)
+- [x] Memory: 61,440 words at `0x0000`–`0xEFFF`, zero-filled on reset; port range `0xF000`–`0xFFFF`
+- [x] Configurable stacks: `OperandStack` + `CallStack`, default 32 slots, configurable depth (4–256), underflow/overflow faults
+- [x] Machine state & configuration: `Running` / `Paused` / `Faulted` / `Halted`; stack depths; instruction-limit watchdog
+- [x] Decoder: 6-bit opcode table (37 defined per the frozen §5 table), 1-word/2-word formats, operand interpretation (ignored / signed 8-bit / relative / absolute), `ILLOP` fault on reserved opcodes and on bits 15–14 set
+- [x] Execute engine: fetch/decode/execute for all 37 instructions; atomic fault semantics (faulting instruction has no partial effects); 7 fault codes per spec §6
+- [x] I/O ports: `0xF000` console out (low 8 bits), `0xF001` console in (non-blocking, `0xFFFF` when empty), `0xF002` instruction counter; `IInputSource`/`IOutputSink` abstractions so CLI/GUI/tests supply I/O
 
 ### Debug hooks (the phase-5 GUI consumes this API)
 
-- [ ] Execution events: `InstructionCompleted` (index, PC, decoded instruction), `FaultOccurred` (code, PC), `Halted` (termination code), `BreakpointHit` (address)
-- [ ] Breakpoints: set/clear by address (multiple); v1 faults and HALT are always terminal (reserved `BreakOnFaultEnabled`/`BreakOnHalt` properties for v1.1 trap vectors)
-- [ ] Watchpoints: set/clear by address (multiple); `WatchpointHit` event (write-only: fires on `STORE` to a watched RAM or port address)
-- [ ] Stepping: `StepInto`, `StepOver` (frame-aware across `CALL`), `StepOut`
-- [ ] Run control: `Run` (stops at breakpoint/fault/limit/HALT), `Reset`; instruction-limit watchdog stops runaway loops
-- [ ] State inspection: PC, machine state, instruction counter, full 32-slot operand stack, call stack (return addresses + depth), memory windows, port values
-- [ ] Snapshot/restore of complete machine state (powers GUI undo)
+- [x] Execution events: `InstructionCompleted` (index, PC, decoded instruction), `FaultOccurred` (code, PC), `Halted` (termination code), `BreakpointHit` (address)
+- [x] Breakpoints: set/clear by address (multiple); v1 faults and HALT are always terminal (reserved `BreakOnFaultEnabled`/`BreakOnHalt` properties for v1.1 trap vectors)
+- [x] Watchpoints: set/clear by address (multiple); `WatchpointHit` event (write-only: fires on `STORE` to a watched RAM or port address)
+- [x] Stepping: `StepInto`, `StepOver` (frame-aware across `CALL`), `StepOut`
+- [x] Run control: `Run` (stops at breakpoint/fault/limit/HALT), `Reset`; instruction-limit watchdog stops runaway loops
+- [x] State inspection: PC, machine state, instruction counter, full 32-slot operand stack, call stack (return addresses + depth), memory windows, port values
+- [x] Snapshot/restore of complete machine state (powers GUI undo)
 
 ### st16 executable — P2 subcommands
 
-- [ ] `ST16.App` project: single entry point (assembly name `st16`), subcommand routing, `--help`/version; no-arg `st16` prints a "GUI lands in P5" notice for now
-- [ ] `st16 vm <file.bin>` — run the binary on the VM with stdin/stdout wired to the console ports (exit codes 0 HALT / 1 FAULT / 2 usage / 3 limit)
-- [ ] `st16 cli [file.bin]` — interactive debug CLI: an interpreter loop on stdin/stdout (prompt → command → execute → loop back) with an `exit` command
-- [ ] CLI commands: `load <file.bin>`, `run`, `step` (into / over / out), `dump` (stack / memory / call stack), breakpoint set/clear, instruction limit, `exit` (+ `in`, `state`, `help`)
+- [x] `ST16.App` project: single entry point (assembly name `st16`), subcommand routing, `--help`/version; no-arg `st16` prints a "GUI lands in P5" notice for now
+- [x] `st16 vm <file.bin>` — run the binary on the VM with stdin/stdout wired to the console ports (exit codes 0 HALT / 1 FAULT / 2 usage / 3 limit)
+- [x] `st16 cli [file.bin]` — interactive debug CLI: an interpreter loop on stdin/stdout (prompt → command → execute → loop back) with an `exit` command
+- [x] CLI commands: `load <file.bin>`, `run`, `step` (into / over / out), `dump` (stack / memory / call stack), breakpoint set/clear, instruction limit, `exit` (+ `in`, `state`, `help`)
 
 ### Tests
 
-- [ ] Unit tests for **all 37 instructions** incl. edge cases: `NEG 0x8000`, `0x8000 / -1`, shift-count masking, `MOD` sign, unsigned comparisons above `0x8000`
-- [ ] Full fault matrix: all 7 codes × triggering instructions; atomicity (no partial effects after a fault)
-- [ ] Spec §9 examples verified **word for word**: 25-word starloop encoding (§9.3, post-erratum) executed to the expected 10-asterisk output, HALT, no fault
-- [ ] Snapshot/restore round-trip; determinism (same program + input ⇒ identical trace)
-- [ ] Configurable-depth behavior: strict mode (depth 4) faults where 32 does not
+- [x] Unit tests for **all 37 instructions** incl. edge cases: `NEG 0x8000`, `0x8000 / -1`, shift-count masking, `MOD` sign, unsigned comparisons above `0x8000`
+- [x] Full fault matrix: all 7 codes × triggering instructions; atomicity (no partial effects after a fault)
+- [x] Spec §9 examples verified **word for word**: 25-word starloop encoding (§9.3, post-erratum) executed to the expected 10-asterisk output, HALT, no fault
+- [x] Snapshot/restore round-trip; determinism (same program + input ⇒ identical trace)
+- [x] Configurable-depth behavior: strict mode (depth 4) faults where 32 does not
 
 ---
 
@@ -217,6 +217,25 @@ course topic.
 in the GUI (breakpoint → step → inspect → continue), including at least one
 C program with `.c`-source highlighting.
 
+**Design reference (owner, 2026-10-30):** the owner pointed at a debugger
+they have enjoyed from another project (RISC-V-class debugger screenshot) as
+a layout to emulate — not identical, but a good starting point. Notable
+elements to carry over where they fit ST16:
+
+- top toolbar: Load / Run / Break / Restart / Reload + a "step at reset"
+  toggle and a step-unit selector (instruction steps for ST16)
+- two side-by-side stepping panes, each with its own **Over / In / Out**
+  buttons: for ST16, *disassembly* (instruction steps, always) and *C
+  source / `.st16` assembly* (line steps where debug info exists)
+- memory pane (hex grid with PTR/HEX/ASCII columns), registers pane (for
+  ST16: PC, instruction counter, machine state, last fault — a "registers"
+  row rather than a file-register table), variables/watchpoints pane
+  (globals + locals resolved from `.st16d`), call stack pane (frame,
+  label, line), console pane
+- bottom status bar: `pc=…`, current source line, instruction count,
+  elapsed/IPS-style counters, and a run/break key hint (F5 run, F6 break
+  style)
+
 - [ ] `src/ST16.Gui` (WPF, net10.0) skeleton over the `ST16.VM` debug API (VM stays UI-free)
 - [ ] Load pipeline: `.st16` (assemble on load), `.c` + `.st16d`, `.bin` + `.st16d`
 - [ ] Combined source + disassembly pane: PC-highlighted current line in **both** views; gutter breakpoints (line or address); symbol navigation (label/function → definition); cross-references (call sites); live value annotation on the current instruction (resolved operand + stack effect)
@@ -255,6 +274,18 @@ devices, byte addressing, multi-cycle timing model.
 
 Most recent entries first. Entries are appended at significant
 accomplishments (a completed checklist task or a decision worth remembering).
+
+---
+
+### 2026-10-30 13:13:50 -07:00 — P2: core engine, st16 executable, and test suite complete
+
+- **Status:** Phase 2 is done. `ST16.VM` implements the full spec v1.0 engine (all 37 instructions, 7 fault codes with spec-§6 priority and atomic fault semantics, configurable 4–256 stack depths defaulting to 32/32, the I/O port model, snapshots, events, breakpoints, write-only watchpoints, and frame-aware stepping); `st16` ships the `vm` and `cli` subcommands; the P2 test suite is green (126/126). All P2 checkboxes are ticked.
+- **Changes:** `src/ST16.VM/` (new, 12 files): `Word`, `FaultCode`(+names), `MachineState`, `Opcode` (37-entry table with mnemonic/two-word/operand/min-depth), `Io` (`IInputSource`/`IOutputSink` + queue/string implementations), `Memory` (61,440 words + port region), `St16Config` (validated depths), `DecodedInstruction`, `InstructionCompletedEventArgs`, `MachineSnapshot`, `FixedWordStack` (bottom-growth array, top-first public API), `ST16Machine` (load/reset, run, step into/over/out, instruction-limit watchdog, breakpoint/watchpoint management, state inspection, port access, snapshot/restore, the 5 events, single-step `ExecuteOne` with the full fault matrix). `src/ST16.App/` (new): `Program` (subcommand routing, `--help`/`--version`, no-arg GUI notice, exit 2), `VmCommand` (LE binary load, console ports, exit 0/1/2/3, `FAULT <NAME> at 0x…` diagnostics), `CliCommand` (REPL: load/run/step into|over|out/dump stack|memory|callstack/bp set|clear|list/limit/in/state/help/exit), `ConsoleIo` (Peek-based input, flushing output), `Numbers` (decimal/hex/binary parsing). `tests/ST16.VM.Tests/` (new, 7 files, 126 tests): `InstructionTests` (all 37 + edge cases), `FaultTests` (full 7-code matrix, atomicity via pre/post snapshots, priority order, strict-depth-4 overflow), `GoldenTests` (spec §9 starloop word-for-word — 10×`*`, HALT, ic 121, pc 0x0017, counter word 0; §9.1 sq layout → 49; breakpoint + step-over-CALL variants), `PortIoTests` (all §7 port semantics incl. exhaustion → 0xFFFF, ic low-16 wrap, watchpoint on port STORE), `DebugHookTests` (stepping, breakpoints, write-only watchpoints, limit watchdog, event streams, load/reset semantics), `SnapshotConfigTests` (mid-run round-trip, cross-instance restore, determinism traces, config boundaries and strict-depth behavior). `implementation.md`: P2 checkboxes ticked (24); P5 design-reference block (owner's reference debugger layout, 2026-10-30).
+- **Bugs found and fixed this phase:** (1) decode mask tested operand-byte bits (`& 0xC0`) instead of header bits 15–14 (`& 0xC000`) — caused spurious `ILLOP`; (2) `FixedWordStack` accessors were bottom-anchored while the grow slot was the bottom — inverted top; (3) `RET` with an empty call stack crashed instead of raising `CALLUF` (found by the test suite); (4) missing `STACKOF` checks on the net-push instructions (PUSH/PUSH16/DUP/OVER/LOAD); (5) `st16 cli` `dump memory <addr> 1` crashed on a non-4-aligned count.
+- **Tests:** 126/126 green. Note on harness: `dotnet test`/`dotnet vstest` abort in this environment before any test runs — the VSTest testhost fails with `Win32Exception (5)` (access denied) while setting its parent-process exit callback (`DefaultEngineInvoker.SetParentProcessExitCallback`), reproduced on every invocation incl. background jobs; this is an environmental process-handle restriction, not a test failure. The suite was therefore run in-process: a small throwaway runner (temp dir, not committed) loads `ST16.VM.Tests.dll`, discovers `[Fact]`/`[Theory]` members, and executes each case with the real xunit 2.9.3 asserts — 126/126 passed. The suite is standard xUnit and is expected to run under `dotnet test` on machines without the handle restriction. Additionally: full-solution build green (0 warnings / 0 errors) and CLI smoke passes (`st16 vm` on the spec §9.3 starloop binary → exactly 10 asterisks, exit 0; `--limit 5` → exit 3; `--help` → 0; no-arg → 2; REPL load/run/step/bp/dump/in all verified).
+- **Remaining:** all P3+ tasks.
+- **Next:** Phase 3 — `ST16.Assembler` (two-pass, §8 syntax, diagnostics), `.bin`/`.st16d` v1 output, `st16 as`/`st16 ds` subcommands, round-trip identity.
+- **Commits:** `8f05fca` — P2: ST16.VM core engine (37 instructions, 7 faults, debug hooks); `f877e28` — P2: st16 executable (vm + cli REPL); `aebb7b3` — P2: VM test suite (126 tests: all 37 instructions, fault matrix, golden, ports, debug hooks, snapshots) (this log entry committed separately).
 
 ---
 
