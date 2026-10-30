@@ -33,6 +33,10 @@ internal static class Program
                 return VmCommand.Run(args[1..]);
             case "cli":
                 return CliCommand.Run(args[1..]);
+            case "as":
+                return AsCommand.Run(args[1..]);
+            case "ds":
+                return DsCommand.Run(args[1..]);
             default:
                 Console.Error.WriteLine($"error: unknown command '{args[0]}'");
                 PrintUsage(Console.Error);
@@ -48,6 +52,9 @@ internal static class Program
         writer.WriteLine("  vm <file.bin> [--limit <n>]   run a binary image on the VM; stdin/stdout");
         writer.WriteLine("                               are wired to the console ports (0xF000/0xF001)");
         writer.WriteLine("  cli [file.bin]                interactive debug REPL on stdin/stdout");
+        writer.WriteLine("  as <in.st16> [-o out.bin] [-d out.st16d]");
+        writer.WriteLine("                                assemble to a binary image + .st16d debug symbols");
+        writer.WriteLine("  ds <out.bin> [-d in.st16d]    disassemble to annotated assembly (stdout)");
         writer.WriteLine("  help, --help                  show this help and exit");
         writer.WriteLine("  --version, -v                 print the version and exit");
         writer.WriteLine();
