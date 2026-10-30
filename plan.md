@@ -26,10 +26,10 @@ version and a changelog entry here.
 
 ## Phase 1 — ISA Specification
 
-**Status: complete (v1.0 draft, pending your review).**
+**Status: complete (v1.0 draft).**
 
 - [docs/ST16-ISA.md](docs/ST16-ISA.md) — normative v1.0 specification:
-  machine model, memory map, encoding, all 41 instructions, fault model,
+  machine model, memory map, encoding, all 37 instructions, fault model,
   I/O ports, assembly syntax, design notes, and the implementer summary (§12).
 - The spec's §12 normative summary is the acceptance baseline for every later
   phase.
@@ -61,8 +61,11 @@ of a stable API, not an afterthought.
     - *Execution events:* `InstructionCompleted` (index, PC, decoded
       instruction), `FaultOccurred` (code, PC), `Halted` (termination code),
       `BreakpointHit` (address).
-    - *Breakpoints:* set/clear by address (multiple); optional
-      break-on-fault-code; break-on-HALT.
+    - *Breakpoints:* set/clear by address (multiple); v1 faults and HALT
+      are always terminal (break-on-fault / break-on-HALT reserved for
+      v1.1 trap vectors).
+    - *Watchpoints:* set/clear by address (multiple); `WatchpointHit`
+      event (write-only — fires on `STORE` to a watched address).
     - *Stepping:* `StepInto`, `StepOver` (skips into a `CALL` frame and stops
       at the return), `StepOut`.
     - *Run control:* `Run`, `RunUntilBreakpoint`, instruction-limit watchdog
@@ -83,7 +86,7 @@ of a stable API, not an afterthought.
   prog.bin` (run via stdin/stdout) and `st16 cli [prog.bin]` (interactive
   debug REPL with `exit`).
 - `tests/ST16.VM.Tests` —
-  - unit tests for **all 41 instructions** (normal + edge cases: `NEG 0x8000`,
+  - unit tests for **all 37 instructions** (normal + edge cases: `NEG 0x8000`,
     `0x8000 / -1`, shift counts masked, sign of `MOD`),
   - full fault matrix (all 7 fault codes × triggering instruction),
   - spec §9 example programs verified **word for word** (binary encoding and
@@ -174,9 +177,10 @@ visible, and where the GUI's source view shows `.c` files instead of assembly.
     expression temporaries. When temporaries would exceed the 32-slot limit,
     the compiler spills them to memory — and the emitted assembly shows the
     spill, which is a lesson in itself.
-  - Emits `.asm`, then reuses the phase-3 assembler: `st16 cc prog.c` →
-    `prog.bin` + `prog.st16d` (with the `.c` source embedded and
-    instruction → `.c`-line mappings).
+  - Emits `.asm` (with instruction → `.c`-line markers in `;` comments),
+    runs the phase-3 assembler, then post-processes the assembler's
+    `.st16d` (replaces `sources[]` with the `.c` text, re-maps `lines[]`
+    through the markers): `st16 cc prog.c` → `prog.bin` + `prog.st16d`.
 - **Tooling:** friendly, line-referenced parse and semantic error messages
   (students read these); `st16 cc` flags: `-o <out.s>` (stop at assembly),
   full pipeline by default.
@@ -236,7 +240,7 @@ shows the live values.
 
 **Deliverables**
 
-- `src/ST16.Gui` (WPF, net10.0):
+- `src/ST16.Gui` (WPF, net10.0-windows):
   - **Load:** `.st16` source (assembles on load), `.c` + `.st16d`, or
     `.bin` + `.st16d`.
   - **Combined source + disassembly pane:**
@@ -286,7 +290,7 @@ C program with `.c`-source highlighting.
 ## Cross-cutting decisions
 
 - **Platform:** .NET 10 (LTS) — `net10.0`, C# 14 (Visual Studio 2026 CE,
-  SDK 10.0.401). xUnit for tests. One solution, `ST16.sln`, at the repo root.
+  SDK 10.0.401). xUnit for tests. One solution, `ST16.slnx`, at the repo root.
 - **Layout:**
 
   ```
@@ -313,7 +317,8 @@ C program with `.c`-source highlighting.
   disassembler, C compiler, interactive CLI, and GUI (no-arg default);
   subcommands select the mode. Engines stay separate, UI-free libraries.
 - **Determinism:** everything is a pure function of (program, input).
-  No threads, no clocks, no randomness in any component.
+  No threads, no clocks, no randomness in any engine component (GUI event
+  threading is outside execution semantics).
 - **Spec is frozen:** opcode table and semantics are v1.0. New features
   (trap vectors, more I/O devices, structs, byte addressing) go into a v1.1
   spec with a changelog before any phase implements them.

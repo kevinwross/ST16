@@ -11,6 +11,7 @@ significant accomplishments. Complements [plan.md](plan.md) (what each phase
 - **Target: .NET 10 (LTS) — `net10.0`, C# 14.** (plan.md originally said
   .NET 8; .NET 8 is EOL and the SDK here is 10 — plan.md corrected.)
 - xUnit for tests; `dotnet test` is the gate for every task.
+- create a local git repository for checkpointing progress. Checkpoint at the end of each checklist or phase completion.
 
 ## Ground rules
 
@@ -23,6 +24,7 @@ significant accomplishments. Complements [plan.md](plan.md) (what each phase
 - Significant accomplishments are appended to the [running log](#running-log)
   at the end of this file, timestamped.
 - Log entry format (markdown):
+- The AI model can handle up to 8 subagents if you think that will help
 
   ```markdown
   ### YYYY-MM-DD HH:MM:SS ±ZZ:ZZ — <phase tag>: <short title>
@@ -65,9 +67,9 @@ entry point is unified.
 
 **Definition of done:** spec reviewed and approved; opcode table frozen.
 
-- [x] Write normative v1.0 spec (`docs/ST16-ISA.md`): machine model, memory map, encoding, all 41 instructions, fault model, I/O ports, assembly syntax, §12 implementer summary
-- [x] Review amendment: stack depths 16 → 32 (operand + call), configurable in implementations (spec §2.1, §10; no encoding impact)
-- [x] Final user sign-off on spec v1.0 (signed 2026-10-29 — ISA frozen at v1.0)
+- [ ] Write normative v1.0 spec (`docs/ST16-ISA.md`): machine model, memory map, encoding, all 37 instructions, fault model, I/O ports, assembly syntax, §12 implementer summary
+- [ ] Review amendment: stack depths 16 → 32 (operand + call), configurable in implementations (spec §2.1, §10; no encoding impact)
+- [ ] Final user sign-off on spec v1.0 (signed 2026-10-29 — ISA frozen at v1.0)
 
 ---
 
@@ -79,36 +81,37 @@ single-step them.
 
 ### Core engine
 
-- [ ] Scaffold `ST16.sln`: `src/ST16.VM` (class library, no UI deps), `src/ST16.App` (the `st16` executable), `tests/ST16.VM.Tests` (xUnit); baseline `dotnet test` green
-- [ ] 16-bit word value type: two's complement helpers (sign-extend 10-bit, compare signed/unsigned, wrap arithmetic)
+- [ ] Scaffold `ST16.slnx`: `src/ST16.VM` (class library, no UI deps), `src/ST16.App` (the `st16` executable), `tests/ST16.VM.Tests` (xUnit); baseline build green (0 warnings / 0 errors)
+- [ ] 16-bit word value type: two's complement helpers (sign-extend 8-bit per erratum, compare signed/unsigned, wrap arithmetic)
 - [ ] Memory: 61,440 words at `0x0000`–`0xEFFF`, zero-filled on reset; port range `0xF000`–`0xFFFF`
 - [ ] Configurable stacks: `OperandStack` + `CallStack`, default 32 slots, configurable depth (4–256), underflow/overflow faults
 - [ ] Machine state & configuration: `Running` / `Paused` / `Faulted` / `Halted`; stack depths; instruction-limit watchdog
-- [ ] Decoder: 6-bit opcode table (41 instructions), 1-word/2-word formats, operand interpretation (ignored / signed 10-bit / relative / absolute), `ILLOP` fault on reserved opcodes
-- [ ] Execute engine: fetch/decode/execute for all 41 instructions; atomic fault semantics (faulting instruction has no partial effects); 7 fault codes per spec §6
+- [ ] Decoder: 6-bit opcode table (37 defined per the frozen §5 table), 1-word/2-word formats, operand interpretation (ignored / signed 8-bit / relative / absolute), `ILLOP` fault on reserved opcodes and on bits 15–14 set
+- [ ] Execute engine: fetch/decode/execute for all 37 instructions; atomic fault semantics (faulting instruction has no partial effects); 7 fault codes per spec §6
 - [ ] I/O ports: `0xF000` console out (low 8 bits), `0xF001` console in (non-blocking, `0xFFFF` when empty), `0xF002` instruction counter; `IInputSource`/`IOutputSink` abstractions so CLI/GUI/tests supply I/O
 
 ### Debug hooks (the phase-5 GUI consumes this API)
 
 - [ ] Execution events: `InstructionCompleted` (index, PC, decoded instruction), `FaultOccurred` (code, PC), `Halted` (termination code), `BreakpointHit` (address)
-- [ ] Breakpoints: set/clear by address (multiple); break-on-fault-code; break-on-HALT
+- [ ] Breakpoints: set/clear by address (multiple); v1 faults and HALT are always terminal (reserved `BreakOnFaultEnabled`/`BreakOnHalt` properties for v1.1 trap vectors)
+- [ ] Watchpoints: set/clear by address (multiple); `WatchpointHit` event (write-only: fires on `STORE` to a watched RAM or port address)
 - [ ] Stepping: `StepInto`, `StepOver` (frame-aware across `CALL`), `StepOut`
-- [ ] Run control: `Run`, `RunUntilBreakpoint`, `Reset`; instruction-limit watchdog stops runaway loops
+- [ ] Run control: `Run` (stops at breakpoint/fault/limit/HALT), `Reset`; instruction-limit watchdog stops runaway loops
 - [ ] State inspection: PC, machine state, instruction counter, full 32-slot operand stack, call stack (return addresses + depth), memory windows, port values
 - [ ] Snapshot/restore of complete machine state (powers GUI undo)
 
 ### st16 executable — P2 subcommands
 
 - [ ] `ST16.App` project: single entry point (assembly name `st16`), subcommand routing, `--help`/version; no-arg `st16` prints a "GUI lands in P5" notice for now
-- [ ] `st16 vm <file.bin>` — run the binary on the VM with stdin/stdout wired to the console ports
+- [ ] `st16 vm <file.bin>` — run the binary on the VM with stdin/stdout wired to the console ports (exit codes 0 HALT / 1 FAULT / 2 usage / 3 limit)
 - [ ] `st16 cli [file.bin]` — interactive debug CLI: an interpreter loop on stdin/stdout (prompt → command → execute → loop back) with an `exit` command
-- [ ] CLI commands: `load <file.bin>`, `run`, `step` (into / over / out), `dump` (stack / memory / call stack), breakpoint set/clear, instruction limit, `exit`
+- [ ] CLI commands: `load <file.bin>`, `run`, `step` (into / over / out), `dump` (stack / memory / call stack), breakpoint set/clear, instruction limit, `exit` (+ `in`, `state`, `help`)
 
 ### Tests
 
-- [ ] Unit tests for **all 41 instructions** incl. edge cases: `NEG 0x8000`, `0x8000 / -1`, shift-count masking, `MOD` sign, unsigned comparisons above `0x8000`
+- [ ] Unit tests for **all 37 instructions** incl. edge cases: `NEG 0x8000`, `0x8000 / -1`, shift-count masking, `MOD` sign, unsigned comparisons above `0x8000`
 - [ ] Full fault matrix: all 7 codes × triggering instructions; atomicity (no partial effects after a fault)
-- [ ] Spec §9 examples verified **word for word**: binary encoding (§9.3) and final stack/memory state
+- [ ] Spec §9 examples verified **word for word**: 25-word starloop encoding (§9.3, post-erratum) executed to the expected 10-asterisk output, HALT, no fault
 - [ ] Snapshot/restore round-trip; determinism (same program + input ⇒ identical trace)
 - [ ] Configurable-depth behavior: strict mode (depth 4) faults where 32 does not
 
@@ -125,10 +128,10 @@ byte-identical.
 - [ ] `src/ST16.Assembler` project; lexer: labels, mnemonics (case-insensitive), decimal/`0x`/`0b` literals, directives, `;` comments, line/column tracking
 - [ ] Parser for spec §8 syntax: `[label:] mnemonic [operand]`
 - [ ] Two-pass assembly: label resolution; expressions (constant, label, `label ± constant`)
-- [ ] Range checks: `PUSH` −512…511; `JZ`/`JNZ` offset ±511 (relative to `PC+1`); `PUSH16`/`JMP`/`CALL` 0…65535
+- [ ] Range checks (per erratum): `PUSH` −128…127; `JZ`/`JNZ` offset ±127 (relative to `PC+1`, hard reject — no wrap); `PUSH16`/`JMP`/`CALL` 0…65535
 - [ ] Diagnostics with line numbers: undefined label, duplicate label, operand out of range, branch offset out of range, `.org` overlap, beyond RAM
 - [ ] `.bin` output: little-endian 16-bit words
-- [ ] `.st16d` v1 (JSON, self-contained, source embedded): `sources[]` (full text), `lines[]` (address → file/line, one per instruction and data word), `symbols[]` (label/function/data), `functions[]` (entry, end), `sections[]` (origin, length)
+- [ ] `.st16d` v1 (JSON, self-contained, source embedded): `sources[]` (full text), `lines[]` (address → file/line, one per instruction and data word; two-word instructions map the header address), `symbols[]` (label/function/data; a label targeted by `CALL` is a `function`), `functions[]` (entry, end), `sections[]` (origin, length)
 
 ### Disassembler
 
@@ -136,13 +139,13 @@ byte-identical.
 
 ### CLI
 
-- [ ] `st16 as` subcommand: `st16 as in.st16 -o out.bin -d out.st16d`
+- [ ] `st16 as` subcommand: `st16 as in.st16 -o out.bin -d out.st16d` (defaults: inputs' directory, `<name>.bin` / `<name>.st16d`)
 - [ ] `st16 ds` subcommand: `st16 ds out.bin [-d in.st16d]`
 
 ### Tests
 
 - [ ] Round-trip identity: assemble → disassemble → assemble produces a byte-identical binary
-- [ ] Spec §9.3 encoding table verified instruction by instruction; §9 examples assemble to the documented words
+- [ ] Spec §9.3 encoding table verified instruction by instruction (post-erratum); §9 examples assemble to the documented words
 - [ ] Assembler error cases: every diagnostic class, correct line numbers
 - [ ] `.st16d` schema validation: every instruction address has a line entry; embedded source round-trips
 
@@ -166,7 +169,7 @@ to a `.c` line.
 - [ ] Calling convention: arguments pushed right-to-left on the operand stack; callee cleans up; result returned on top
 - [ ] Frame model: reserved stack-pointer word in RAM; per-function RAM frames for locals; recursion supported
 - [ ] Temp spilling to memory when the 32-slot operand stack limit is exceeded (spills visible in `-S` output)
-- [ ] `.st16d` emission reusing the phase-3 format: `.c` source embedded, instruction → `.c`-line mappings (via `.asm` line markers); `functions[]` for call-stack display
+- [ ] `.st16d` emission reusing the phase-3 format: the compiler emits line markers as `;` comments in the `.asm`, runs the phase-3 assembler, and post-processes the resulting `.st16d` (replaces `sources[]` with the `.c` text, re-maps `lines[]` through the markers); `functions[]` for call-stack display
 
 ### CLI & tests
 
@@ -255,21 +258,3 @@ accomplishments (a completed checklist task or a decision worth remembering).
 
 ---
 
-### 2026-10-29 22:00:42 -07:00 — P1: implementation.md created
-
-- **Status:** implementation.md now defines per-phase task checklists, definitions of done, and this running log. Environment verified on this machine.
-- **Changes:** new `implementation.md`; verified toolchain (Visual Studio 2026 CE, .NET SDK 10.0.401); corrected plan.md's platform target from .NET 8 to .NET 10 LTS (`net10.0`, C# 14) — .NET 8 is EOL and not installed here.
-- **Tests:** n/a — no code yet. Ground rule set: `dotnet test` must pass before any checkbox is ticked.
-- **Remaining:** P1 user sign-off on the spec; all P2+ tasks.
-- **Next:** scaffold `ST16.sln` and start P2 core (word type, memory, configurable stacks).
-
----
-
-### 2026-10-29 23:05:02 -07:00 — P1: spec frozen, single-exec design, git initialized
-
-- **Status:** spec v1.0 is frozen with user sign-off — **P1 complete**. All functionality will ship in one `st16.exe` with subcommands (`vm`, `cli`, `as`, `ds`, `cc`, no-arg → GUI). Local git repository initialized; .NET 10 confirmed as the target.
-- **Changes:** P1 sign-off checked; new `st16 command reference` + single-exec design (`ST16.App` entry point, engines stay separate UI-free libraries); interactive CLI REPL requirement (prompt → command → execute → loop back, `exit` to leave); git commit rule (commit per completed checklist item, hash noted in the log); plan.md updated to the single-exec design and .NET 10 LTS platform (the .NET 8 → 10 correction promised in the previous entry landed here); `.gitignore` added.
-- **Tests:** n/a — no code yet; `dotnet test` gate stands.
-- **Remaining:** P2 scaffold + core engine; P3/P3.5/P5 subcommand wiring.
-- **Next:** scaffold `ST16.sln` (`ST16.VM`, `ST16.App`, `tests/ST16.VM.Tests`), then word type + memory + configurable stacks.
-- **Commit:** `35dc39a` — P1: spec frozen (v1.0 sign-off), plan + implementation checklists, single-exec st16 design, git init (this log entry committed separately).

@@ -22,8 +22,8 @@ counter, two stacks, word-addressed memory, and memory-mapped I/O ports.
 ## Build & test
 
 ```powershell
-dotnet build ST16.sln --nologo
-dotnet test  ST16.sln --nologo
+dotnet build ST16.slnx --nologo
+dotnet test  ST16.slnx --nologo
 ```
 
 The codebase is never left with failing tests; every task lands with the full
@@ -63,8 +63,9 @@ ST16/
 
 ## Design in one paragraph
 
-ST16 is a pure stack machine: 41 instructions, 6-bit opcodes, 10-bit operand
-fields, 16-bit words, two's-complement wrap-around arithmetic, 7 fault codes
+ST16 is a pure stack machine: 37 instructions, a 6-bit opcode in the high
+byte (bits 15–14 reserved zero) plus an 8-bit operand field, 16-bit words,
+two's-complement wrap-around arithmetic, 7 fault codes
 (halt-and-report, no traps in v1), and a 128 KiB word-addressed address space
 with the top 8 KiB reserved for I/O ports (console out `0xF000`, console in
 `0xF001`, instruction counter `0xF002`). Stack depths default to 32 slots and

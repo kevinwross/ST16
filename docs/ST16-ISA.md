@@ -1,6 +1,6 @@
 # ST16 Instruction Set Architecture Specification
 
-**Version 1.0** · Status: Draft for review
+**Version 1.0** · Status: Frozen (signed 2026-10-29; errata 2026-10-30)
 
 Amended during v1.0 review: operand and call stack depths raised from 16 to
 32 slots (see §2.1 and §10). No encoding or opcode changes.
@@ -114,6 +114,10 @@ There is no byte addressing in v1.
 
 Accessing an address whose port is unmapped (see §7) is an **ADDRF** fault.
 
+Instructions are fetched from RAM only: a `JMP`, `CALL`, or `RET` that leaves
+the PC in the port region `0xF000`–`0xFFFF` faults with **ADDRF** on the next
+fetch.
+
 ---
 
 ## 4. Instruction encoding
@@ -138,8 +142,10 @@ begins with a header word:
     `0`); a conforming implementation must not depend on it.
   - **signed 8-bit immediate** — `PUSH`. Two's complement, range −128…127.
   - **signed 8-bit relative offset** — `JZ`, `JNZ`. Two's complement,
-    range −128…+127 words, measured **from the next instruction**:
-    `target = (PC + 1) + offset`.
+    range −127…+127 words, measured **from the next instruction**:
+    `target = (PC + 1) + offset` (mod 2¹⁶). The value −128 is rejected
+    (assembler hard-reject): it is the only offset that can wrap the
+    16-bit target.
 - **Two-word instructions** — `PUSH16`, `JMP`, `CALL`. The header word's
   operand field is reserved (`0`); the following word is an **absolute 16-bit
   value** (literal, or jump/call target). After any two-word instruction the
@@ -179,7 +185,7 @@ Results wrap modulo 2¹⁶; no overflow fault.
 | 0x06 | `SUB` | `a b → a−b` | Top element is the **subtrahend** (so `x 1 SUB → x−1`). |
 | 0x07 | `NEG` | `a → −a` | Negate. `NEG` of `0x8000` yields `0x8000` (wrap). |
 | 0x08 | `MUL` | `a b → low16(a×b)` | 32-bit product, low 16 bits pushed. |
-| 0x09 | `DIV` | `a b → ⌊a÷b⌋` | Signed division of second by top, quotient **truncated toward zero**. `0x8000 ÷ −1` wraps to `0x8000` (no fault). |
+| 0x09 | `DIV` | `a b → trunc(a÷b)` | Signed division of second by top, quotient **truncated toward zero**. `0x8000 ÷ −1` wraps to `0x8000` (no fault). |
 | 0x0A | `MOD` | `a b → a mod b` | Remainder has the sign of the dividend (C-99 style). `x mod x = 0` for any `x ≠ 0`. |
 | 0x0B | `AND` | `a b → a ∧ b` | Bitwise AND. |
 | 0x0C | `OR` | `a b → a ∨ b` | Bitwise OR. |
@@ -256,11 +262,17 @@ instruction has no partial effects (atomicity, §2.3). The machine reports:
 |------|----------|-------|
 | 1 | `DIV0` | `DIV` or `MOD` with divisor 0. |
 | 2 | `STACKUF` | Any instruction needs more stack depth than is available. |
-| 3 | `STACKOF` | A `DUP`, `PUSH`, `PUSH16`, `LOAD`, arithmetic, or comparison result would overflow the 32-slot stack. |
-| 4 | `ILLOP` | Opcode `0x25`–`0x3F` (reserved/undefined). |
-| 5 | `ADDRF` | `LOAD`/`STORE` to a port that is unmapped (see §7). |
+| 3 | `STACKOF` | A `DUP`, `OVER`, `PUSH`, `PUSH16`, `LOAD`, arithmetic, or comparison result would overflow the configured operand-stack depth. |
+| 4 | `ILLOP` | Opcode `0x25`–`0x3F` (reserved/undefined) or bits 15–14 set. |
+| 5 | `ADDRF` | `LOAD`/`STORE` to a port that is unmapped (see §7), or an instruction fetch from the port region (§3). |
 | 6 | `CALLOF` | `CALL` with a full call stack. |
 | 7 | `CALLUF` | `RET` with an empty call stack. |
+
+When a single instruction could trigger more than one fault, they are
+reported in effect order: `ILLOP` (decode) before `STACKUF` (operand
+underflow) before the instruction's own fault (`DIV0`, `ADDRF`) before
+`STACKOF` (push overflow). Example: `DIV` with a zero divisor on a
+stack lacking the dividend reports `STACKUF`, not `DIV0`.
 
 `HALT` (termination code 0) is **not** a fault.
 
@@ -281,6 +293,9 @@ are no dedicated I/O instructions — the uniformity is intentional
 | `0xF001` | Console in | Next input character in the low 8 bits (high byte 0), or `0xFFFF` if no input is available (non-blocking). | Ignored (no-op). |
 | `0xF002` | Instruction counter | Current instruction count (low 16 bits). | Ignored (no-op). |
 | `0xF003`–`0xFFFF` | Unmapped | **ADDRF** fault. | **ADDRF** fault. |
+
+Console input is a finite sequence: once the input is exhausted, every
+subsequent `LOAD` of `0xF001` returns `0xFFFF`.
 
 The instruction counter increments after each completed instruction,
 including `HALT`.
@@ -317,7 +332,8 @@ Operand ranges are checked at assembly time:
 
 - `PUSH`: −128…127.
 - `JZ`/`JNZ`: label or integer; assembler computes the **relative offset**
-  `target − (instr_addr + 1)` and checks it fits in signed 8 bits.
+  `target − (instr_addr + 1)` and checks it lies in −127…+127 (hard reject;
+the encodable −128 is disallowed because it can wrap the 16-bit target).
 - `PUSH16`, `JMP`, `CALL`: 0…65535 or a label.
 
 ### 8.3 Directives
@@ -388,9 +404,11 @@ cnt:
         .dw 0
 ```
 
-Stack trace at the top of each loop iteration: `[ch, m]` (bottom → top),
-where `ch = 0x2A` and `m` counts down from 9 (the loop prints before it
-checks, so the counter reaches 0 after the last of the 10 prints).
+Stack at the top of each loop iteration (the `DUP`): just `[ch]` — the
+counter `m` lives in RAM and appears on the stack only between the `LOAD`
+and the `JZ` (as `[ch, m]`, bottom → top). `ch = 0x2A` and `m` counts down
+from 9 (the loop prints before it checks, so the counter reaches 0 after
+the last of the 10 prints).
 
 ### 9.3 What the example above compiles to
 
@@ -475,7 +493,7 @@ changelog; the opcode table above is frozen for v1.
 2. Operand and call stacks of 32 slots each (reference configuration);
    implementations may expose both depths as configuration (see §2.1).
 3. 61,440 words of RAM at `0x0000`–`0xEFFF`; I/O ports at `0xF000`–`0xFFFF`
-   as in §7.
+   as in §7; instruction fetches from the port region fault with ADDRF.
 4. Opcode byte (bits 15–8, values `0x00`–`0x3F`) + 8-bit operand (bits 7–0)
    header; two-word forms for `PUSH16`, `JMP`, `CALL` as in §4.
 5. Semantics exactly as in §5; fault behavior exactly as in §6.
