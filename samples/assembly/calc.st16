@@ -1,0 +1,178 @@
+; calc.st16 — sample 6 (difficulty: expert)
+; Objective: console input (port 0xF001), character parsing, subroutines,
+; and a digit-printing loop — the "wow" sample.
+; Repeats: read <number><op><number>, print the result and a newline,
+; until the input is exhausted. op is one of + - * /.
+; Example session:  input "12+7"   ->   output "19" + newline
+; Division by zero faults with DIV0 (no guard — see spec section 6).
+
+main:
+        JMP loop
+
+loop:
+        CALL read_num       ; num1
+        CALL read_op        ; num1 op
+        CALL read_num       ; num1 op num2
+        SWAP                ; num1 num2 op
+        DUP                 ; num1 num2 op op
+        PUSH 0x2B
+        EQ
+        JZ try_sub          ; num1 num2 op
+        DROP
+        ADD
+        JMP done
+try_sub:
+        DUP
+        PUSH 0x2D
+        EQ
+        JZ try_mul          ; num1 num2 op
+        DROP
+        SUB
+        JMP done
+try_mul:
+        DUP
+        PUSH 0x2A
+        EQ
+        JZ try_div          ; num1 num2 op
+        DROP
+        MUL
+        JMP done
+try_div:
+        DUP
+        PUSH 0x2F
+        EQ
+        JZ bad_op           ; num1 num2 op
+        DROP
+        DIV
+        JMP done
+bad_op:
+        DROP                ; num1 num2
+        DROP                ; num1
+        DROP                ; (skip the line)
+        JMP loop
+done:
+        CALL print_num
+        PUSH 0x0A
+        PUSH16 0xF000
+        STORE               ; newline
+        JMP loop
+
+read_char:    ; -> c (0xFFFF if no input)
+        PUSH16 0xF001
+        LOAD
+        RET
+
+read_num:     ; -> number (skips non-digits; stops at end of input)
+        PUSH 0             ; acc
+rdig:
+        CALL read_char     ; acc c
+        DUP
+        PUSH 0xFFFF
+        EQ
+        JZ rend            ; acc c
+        DUP
+        PUSH 0x30
+        SUB                ; acc c d
+        DUP
+        PUSH 9
+        GT
+        JZ nd              ; acc c d
+        DROP               ; acc c
+        DROP               ; acc
+        JMP rdig
+nd:
+        DROP               ; acc d
+        SWAP               ; d acc
+        PUSH 10
+        MUL                ; d (acc*10)
+        SWAP
+        ADD                ; acc'
+        JMP rdig
+rend:
+        DROP               ; acc
+        RET
+
+read_op:      ; -> op (HALT if the input is exhausted)
+ro:
+        CALL read_char     ; c
+        DUP
+        PUSH 0xFFFF
+        EQ
+        JZ end_prog        ; c
+        DUP
+        PUSH 0x2B
+        EQ
+        JZ rop
+        DUP
+        PUSH 0x2D
+        EQ
+        JZ rop
+        DUP
+        PUSH 0x2A
+        EQ
+        JZ rop
+        DUP
+        PUSH 0x2F
+        EQ
+        JZ rop
+        JMP ro
+rop:
+        RET
+end_prog:
+        HALT
+
+print_num:    ; num -> (prints the decimal digits of num)
+        DUP
+        JZ pz              ; num
+        PUSH 0             ; num cnt
+pl:
+        DUP                ; num cnt cnt
+        PUSH16 digbuf
+        ADD                ; num cnt addr
+        OVER               ; num cnt addr num
+        PUSH 10
+        MOD                ; num cnt addr d
+        SWAP               ; num cnt d addr
+        STORE              ; num cnt
+        DUP                ; num cnt num
+        PUSH 10
+        DIV                ; num cnt (num/10)
+        SWAP               ; num (num/10) cnt
+        DROP               ; (num/10) cnt
+        DUP                ; n cnt cnt
+        PUSH 1
+        ADD                ; n cnt (cnt+1)
+        SWAP               ; n (cnt+1) cnt
+        DROP               ; n (cnt+1)
+        DUP
+        JNZ pl
+        DROP               ; (cnt)
+pp:
+        DUP                ; i i
+        JZ pend            ; i
+        DUP                ; i i
+        PUSH 1
+        SUB                ; i (i-1)
+        PUSH16 digbuf
+        ADD                ; i addr
+        LOAD               ; i d
+        PUSH 0x30
+        ADD                ; i ('0'+d)
+        PUSH16 0xF000
+        STORE              ; i
+        DUP                ; i i
+        PUSH 1
+        SUB                ; i (i-1)
+        SWAP
+        DROP               ; i-1
+        JMP pp
+pend:
+        DROP
+        RET
+pz:
+        PUSH 0x30
+        PUSH16 0xF000
+        STORE
+        RET
+digbuf:
+        .ds 6

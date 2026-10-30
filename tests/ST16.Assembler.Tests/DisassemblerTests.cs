@@ -25,8 +25,7 @@ public class DisassemblerTests
         static string At(string[] ls, string addr) =>
             ls.Single(l => l.StartsWith($"0x{addr}:  ", StringComparison.Ordinal));
 
-        Assert.Contains("PUSH", At(lines, "0000"));
-        Assert.Contains("10", At(lines, "0000"));
+        Assert.Matches(@"PUSH\s+9", At(lines, "0000"));   // counter init per erratum
         Assert.Contains("; main", At(lines, "0000"));
 
         Assert.Contains("PUSH16", At(lines, "0001"));

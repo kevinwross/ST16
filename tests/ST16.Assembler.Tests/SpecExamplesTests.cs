@@ -19,7 +19,7 @@ public class SpecExamplesTests
         var r = Assembler.Assemble("star.st16", TestSource.Starloop);
         TestSource.AssertSucceeded(r);
         Assert.Equal(
-            new ushort[] { 0x1B0A, 0x1C00, 0x0018, 0x1E00, 0x1C00, 0x002A },
+            new ushort[] { 0x1B09, 0x1C00, 0x0018, 0x1E00, 0x1C00, 0x002A },
             r.Words.Take(6).ToArray());
     }
 
@@ -69,7 +69,8 @@ public class SpecExamplesTests
         var r = Assembler.Assemble("t.st16", "PUSH 10\nHALT\n");
         TestSource.AssertSucceeded(r);
 
-        string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".bin");
+        // The test's own bin dir (writable in every environment; %TEMP% can be sandbox-blocked).
+        string path = Path.Combine(AppContext.BaseDirectory, Guid.NewGuid().ToString("N") + ".bin");
         try
         {
             r.WriteBin(path);

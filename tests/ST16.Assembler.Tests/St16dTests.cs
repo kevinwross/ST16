@@ -120,8 +120,9 @@ public class St16dTests
         var r = Assembler.Assemble("star.st16", TestSource.Starloop);
         TestSource.AssertSucceeded(r);
 
-        string p1 = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".st16d");
-        string p2 = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".st16d");
+        // The test's own bin dir (writable in every environment; %TEMP% can be sandbox-blocked).
+        string p1 = Path.Combine(AppContext.BaseDirectory, Guid.NewGuid().ToString("N") + ".st16d");
+        string p2 = Path.Combine(AppContext.BaseDirectory, Guid.NewGuid().ToString("N") + ".st16d");
         try
         {
             r.Debug.WriteJson(p1);

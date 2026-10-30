@@ -68,7 +68,7 @@ public static class Disassembler
             var notes = new List<string>();
             int size = 1;
 
-            if (labelAt.TryGetValue(addr, out string self))
+            if (labelAt.TryGetValue(addr, out string? self))
                 notes.Add(self); // symbol mapped at this instruction's address
 
             if (info is null)
@@ -102,7 +102,7 @@ public static class Disassembler
                 }
                 else // PUSH16: cross-reference hint when the literal is a label.
                 {
-                    if (labelAt.TryGetValue(value, out string lit))
+                    if (labelAt.TryGetValue(value, out string? lit))
                         notes.Add($"→ 0x{value:X4} ({lit})");
                 }
             }
@@ -136,7 +136,7 @@ public static class Disassembler
     private static void AddTargetNote(int target, List<string> notes, IReadOnlyDictionary<int, string> labelAt)
     {
         string note = "→ 0x" + target.ToString("X4");
-        if (labelAt.TryGetValue(target, out string name))
+        if (labelAt.TryGetValue(target, out string? name))
             note += $" ({name})";
         notes.Add(note);
     }

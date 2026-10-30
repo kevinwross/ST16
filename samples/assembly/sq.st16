@@ -1,0 +1,17 @@
+; sq.st16 — sample 2 (difficulty: easy)
+; Objective: CALL/RET stack discipline (spec section 9.1): the callee
+; must leave the stack below its argument undisturbed.
+; Expected output: 1
+;   (49 = ASCII '1' — the low byte of 7*7 printed via port 0xF000)
+
+main:
+        PUSH 7
+        CALL sq             ; stack top = 49
+        PUSH16 0xF000
+        STORE               ; print the low byte: '1'
+        HALT
+
+sq:
+        DUP
+        MUL
+        RET

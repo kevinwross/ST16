@@ -5,13 +5,14 @@ namespace ST16.Assembler.Tests;
 /// <summary>Shared source fixtures and golden word images (spec §9).</summary>
 public static class TestSource
 {
-    /// <summary>Spec §9.2 — "a loop with a memory counter", copied verbatim.</summary>
+    /// <summary>Spec §9.2 — "a loop with a memory counter", copied verbatim
+    /// (counter is 9 per the 2026-10-30 erratum so the example prints 10 asterisks).</summary>
     public const string Starloop = """
         ; Print ten asterisks using a counter held in RAM.
         main:
-                PUSH 10
+                PUSH 9
                 PUSH16 cnt
-                STORE             ; mem[cnt] = 10
+                STORE             ; mem[cnt] = 9
                 PUSH16 0x2A       ; '*'
         loop:
                 DUP               ; ... ch ch
@@ -40,7 +41,7 @@ public static class TestSource
     /// </summary>
     public static readonly ushort[] StarloopWords =
     {
-        0x1B0A, 0x1C00, 0x0018, 0x1E00, 0x1C00, 0x002A,
+        0x1B09, 0x1C00, 0x0018, 0x1E00, 0x1C00, 0x002A,
         0x0000, 0x1C00, 0xF000, 0x1E00, 0x1C00, 0x0018,
         0x1D00, 0x0000, 0x2207, 0x1B01, 0x0600, 0x1C00,
         0x0018, 0x1E00, 0x1F00, 0x0006, 0x0400, 0x2400,

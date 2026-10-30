@@ -1,0 +1,38 @@
+; fib.st16 — sample 4 (difficulty: medium)
+; Objective: recursion and the call stack. fib(n) with two base cases
+; and two sub-calls whose results must be kept apart with SWAP.
+; Expected output: 7
+;   (fib(10) = 55 = ASCII '7' printed via port 0xF000)
+;
+; fib(n):  0 if n == 0;  1 if n == 1;  fib(n-1) + fib(n-2) otherwise.
+
+main:
+        PUSH 10
+        CALL fib
+        PUSH16 0xF000
+        STORE               ; print the low byte of 55: '7'
+        HALT
+
+fib:
+        DUP
+        JZ ret0             ; n == 0
+        PUSH 1
+        SUB                 ; n-1
+        DUP
+        JZ ret1             ; n == 1
+        DUP                 ; n-1, n-1
+        PUSH 1
+        SUB                 ; n-1, n-2
+        CALL fib            ; n-1, fib(n-2)
+        SWAP                ; fib(n-2), n-1
+        CALL fib            ; fib(n-2), fib(n-1)
+        ADD                 ; fib(n)
+        RET
+ret0:
+        DROP
+        PUSH 0
+        RET
+ret1:
+        DROP
+        PUSH 1
+        RET
