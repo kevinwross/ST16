@@ -158,11 +158,11 @@ Results wrap modulo 2¹⁶; no overflow fault.
 | Op | Mnemonic | Stack effect | Description |
 |----|----------|--------------|-------------|
 | 0x05 | `ADD` | `a b → a+b` | Sum, low 16 bits. |
-| 0x06 | `SUB` | `a b → b−a` | Top element is the **subtrahend**. |
+| 0x06 | `SUB` | `a b → a−b` | Top element is the **subtrahend** (so `x 1 SUB → x−1`). |
 | 0x07 | `NEG` | `a → −a` | Negate. `NEG` of `0x8000` yields `0x8000` (wrap). |
 | 0x08 | `MUL` | `a b → low16(a×b)` | 32-bit product, low 16 bits pushed. |
-| 0x09 | `DIV` | `a b → ⌊b÷a⌋` | Signed division, quotient **truncated toward zero**. `0x8000 ÷ −1` wraps to `0x8000` (no fault). |
-| 0x0A | `MOD` | `a b → b mod a` | Remainder has the sign of the dividend (C-99 style). `x mod x = 0` for any `x ≠ 0`. |
+| 0x09 | `DIV` | `a b → ⌊a÷b⌋` | Signed division of second by top, quotient **truncated toward zero**. `0x8000 ÷ −1` wraps to `0x8000` (no fault). |
+| 0x0A | `MOD` | `a b → a mod b` | Remainder has the sign of the dividend (C-99 style). `x mod x = 0` for any `x ≠ 0`. |
 | 0x0B | `AND` | `a b → a ∧ b` | Bitwise AND. |
 | 0x0C | `OR` | `a b → a ∨ b` | Bitwise OR. |
 | 0x0D | `XOR` | `a b → a ⊕ b` | Bitwise XOR. |
@@ -170,7 +170,7 @@ Results wrap modulo 2¹⁶; no overflow fault.
 | 0x0F | `SLL` | `n c → c ≪ (n & 0xF)` | Shift left; **count** is popped first, masked to 0–15. |
 | 0x10 | `SLR` | `n c → c ≫ (n & 0xF)` | Arithmetic shift right (sign-extending). |
 
-`DIV`/`MOD` fault with **DIV0** when the divisor `a` is zero.
+`DIV`/`MOD` fault with **DIV0** when the divisor `b` (top of stack) is zero.
 
 ### 5.3 Comparison (0x11–0x1A)
 
@@ -179,16 +179,16 @@ Each pops the top two elements and pushes `1` if the condition
 
 | Op | Mnemonic | Condition | Interpretation |
 |----|----------|-----------|----------------|
-| 0x11 | `EQ` | `b == a` | Pattern equality (identical for signed or unsigned). |
-| 0x12 | `NE` | `b != a` | Pattern inequality. |
-| 0x13 | `LT` | `b < a` | Signed. |
-| 0x14 | `GT` | `b > a` | Signed. |
-| 0x15 | `LE` | `b ≤ a` | Signed. |
-| 0x16 | `GE` | `b ≥ a` | Signed. |
-| 0x17 | `ULT` | `b < a` | Unsigned. |
-| 0x18 | `UGT` | `b > a` | Unsigned. |
-| 0x19 | `ULE` | `b ≤ a` | Unsigned. |
-| 0x1A | `UGE` | `b ≥ a` | Unsigned. |
+| 0x11 | `EQ` | `a == b` | Pattern equality (identical for signed or unsigned). |
+| 0x12 | `NE` | `a != b` | Pattern inequality. |
+| 0x13 | `LT` | `a < b` | Signed. |
+| 0x14 | `GT` | `a > b` | Signed. |
+| 0x15 | `LE` | `a ≤ b` | Signed. |
+| 0x16 | `GE` | `a ≥ b` | Signed. |
+| 0x17 | `ULT` | `a < b` | Unsigned. |
+| 0x18 | `UGT` | `a > b` | Unsigned. |
+| 0x19 | `ULE` | `a ≤ b` | Unsigned. |
+| 0x1A | `UGE` | `a ≥ b` | Unsigned. |
 
 Signed/unsigned comparison pairs exist because address arithmetic and
 unsigned magnitudes compare differently above `0x8000`.
@@ -373,19 +373,37 @@ cnt:
 Stack trace at the top of each loop iteration: `[ch, m]` (bottom → top),
 where `ch = 0x2A` and `m` counts down from 10.
 
-### 9.3 What the example above compiles to (first six words)
+### 9.3 What the example above compiles to
+
+`main` starts at `0x0000`. Remember: `PUSH16`/`JMP`/`CALL` are two-word
+instructions, the `PUSH` operand field is bits 9–0, and `JZ` encodes the
+signed offset from the **next** instruction.
 
 | Address | Hex word | Source |
 |---|---|---|
-| 0x0000 | `0x1BB0` | `PUSH 10` (op `0x1B`, imm `10` = `0x00B`) |
+| 0x0000 | `0x1B0A` | `PUSH 10` (op `0x1B`, imm `10` = `0x00A`) |
 | 0x0001 | `0x1C00` | `PUSH16 cnt` (header) |
-| 0x0002 | `0x0006` | `cnt` = `0x0006` |
+| 0x0002 | `0x0018` | `cnt` = `0x0018` |
 | 0x0003 | `0x1E00` | `STORE` |
 | 0x0004 | `0x1C00` | `PUSH16 0x2A` (header) |
 | 0x0005 | `0x002A` | literal |
 
-(Addresses assume `main` is at the start of the file; `cnt` lands at the
-address shown by the `.dw` after the code.)
+Full program — 25 words (offset: word):
+
+```
+0x0000 0x1B0A   0x0001 0x1C00   0x0002 0x0018   0x0003 0x1E00
+0x0004 0x1C00   0x0005 0x002A   0x0006 0x0000   0x0007 0x1C00
+0x0008 0xF000   0x0009 0x1E00   0x000A 0x1C00   0x000B 0x0018
+0x000C 0x1D00   0x000D 0x0000   0x000E 0x2207   0x000F 0x1B01
+0x0010 0x0600   0x0011 0x1C00   0x0012 0x0018   0x0013 0x1E00
+0x0014 0x2100   0x0015 0x0006   0x0016 0x0400   0x0017 0x2400
+0x0018 0x0000
+```
+
+Key points: `PUSH 10` is `0x1B0A` (the immediate lives in bits 9–0); the
+`JZ done` at `0x000E` encodes offset `+7` (next instruction `0x000F`,
+`done` at `0x0016`); the `JMP loop` at `0x0014` is a two-word absolute
+branch to `0x0006`.
 
 ---
 
