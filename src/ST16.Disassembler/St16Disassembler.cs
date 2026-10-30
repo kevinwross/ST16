@@ -159,8 +159,8 @@ public static class St16Disassembler
                 var (text, comment) = BranchText(info.Mnemonic, i, target, symbolAt);
                 if (info.Mnemonic == "CALL")
                     AddRef(calls, target, i);
-                else
-                    AddRef(branches, target, i);
+                else if (info.Mnemonic == "JMP")
+                    AddRef(branches, target, i); // PUSH16 values are data, not branch references
                 lines.Add(new DisassembledLine(i, text, comment));
                 i += 2;
                 continue;
