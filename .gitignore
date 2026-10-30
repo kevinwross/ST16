@@ -1,0 +1,13 @@
+# .NET
+bin/
+obj/
+publish/
+artifacts/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Tests
+TestResults/
