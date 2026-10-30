@@ -258,3 +258,12 @@ accomplishments (a completed checklist task or a decision worth remembering).
 
 ---
 
+### 2026-10-30 09:27:25 -07:00 — P1: baseline reset + review fixes
+
+- **Status:** Baseline re-based and the toolchain docs are now mutually consistent with the frozen spec. P2/P3 code was intentionally reset out of the working tree; the old implementation remains in history at `ef08947` as reference (verified green there: VM 78/78, Assembler 117/117) — P2/P3 will be re-implemented from scratch against the corrected baseline.
+- **Changes:** Spec (docs/ST16-ISA.md): port-region instruction fetch is now ADDRF (§3, §6, §12); `JZ`/`JNZ` range reconciled to ±127 in the §4/§8.2 body (−128 hard-rejected, wrap rationale); `DIV` effect corrected to `trunc(a÷b)` (the floor symbol contradicted "truncated toward zero"); `OVER` added to the §6 STACKOF cause list; fault-priority rule added (ILLOP → STACKUF → DIV0/ADDRF → STACKOF, effect order); input-exhaustion rule for `0xF001` → `0xFFFF` (§7); §9.2 stack-trace comment corrected (loop top holds `[ch]` only); status header now "Frozen (signed 2026-10-29; errata 2026-10-30)". plan.md: 37 instructions (both mentions), terminal-fault breakpoint policy, write-only watchpoints hook added to P2 debug hooks, C `.st16d` post-processing pipeline specified (P3.5), `ST16.slnx`, WPF target `net10.0-windows`, determinism rule scoped to engine components. README.md: 37 instructions with correct opcode/operand wording (6-bit opcode in high byte, 8-bit operand field), `ST16.slnx` build commands. implementation.md: P1 item says 37, P2 watchpoints checklist item added, `.st16d` conventions stated (two-word instructions map the header address; a `CALL`-targeted label is a `function`), P3.5 pipeline mechanism specified. Working tree: P2/P3 code, samples, `ST16.slnx`, `.gitignore` deleted (intentional reset); P1 checkboxes left unchecked and log emptied by the reset, per owner decision.
+- **Tests:** n/a — docs only; no code in the working tree after the reset. Reference implementation at `ef08947` re-verified green in a throwaway worktree (78/78 VM, 117/117 Assembler, SDK 10.0.401), then removed.
+- **Remaining:** all P2+ tasks. P2 scaffold and core engine are next.
+- **Next:** scaffold `ST16.slnx` (`ST16.VM`, `ST16.App`, `tests/ST16.VM.Tests`), then the P2 core: word type, memory, configurable stacks, decoder, execute engine.
+- **Commit:** `2e83255` — P1: baseline reset + review fixes (spec clarifications, doc consistency) (this log entry committed separately).
+
