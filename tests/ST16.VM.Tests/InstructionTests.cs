@@ -430,4 +430,97 @@ public class InstructionTests
         vm.ExpectHalted();
         Assert.Equal(new ushort[] { 10, 30, 20 }, vm.StackTopDown());
     }
+
+    // ---- Required wrap / masking edge cases (spec §5.2, §5.3) ----
+
+    [Fact]
+    public void Add_0xFFFFPlus1WrapsToZero()
+    {
+        var vm = new TestVm().Load(0x1C00, 0xFFFF, 0x1B01, 0x0500, 0x2400); // 0xFFFF + 1
+        vm.Machine.Run();
+        vm.ExpectHalted();
+        Assert.Equal((ushort)0x0000, vm.Top);
+    }
+
+    [Fact]
+    public void Mul_0x8000Times2WrapsToZero()
+    {
+        var vm = new TestVm().Load(0x1C00, 0x8000, 0x1B02, 0x0800, 0x2400);
+        vm.Machine.Run();
+        vm.ExpectHalted();
+        Assert.Equal((ushort)0x0000, vm.Top); // 0x8000 × 2 = 0x10000 → low16 = 0
+    }
+
+    [Fact]
+    public void Mul_65535Times2Low16()
+    {
+        var vm = new TestVm().Load(0x1C00, 0xFFFF, 0x1B02, 0x0800, 0x2400);
+        vm.Machine.Run();
+        vm.ExpectHalted();
+        Assert.Equal((ushort)0xFFFE, vm.Top); // 65535 × 2 = 0x1FFFE → 0xFFFE
+    }
+
+    [Fact]
+    public void Sll_Count16MasksToZeroShifts()
+    {
+        var vm = new TestVm().Load(0x1B10, 0x1B01, 0x0F00, 0x2400); // count 16 (second), value 1 (top)
+        vm.Machine.Run();
+        vm.ExpectHalted();
+        Assert.Equal((ushort)1, vm.Top); // 16 & 0xF = 0 → no shift
+    }
+
+    [Fact]
+    public void Sll_Count20MasksToFour()
+    {
+        var vm = new TestVm().Load(0x1B14, 0x1B01, 0x0F00, 0x2400); // count 20 (second), value 1 (top)
+        vm.Machine.Run();
+        vm.ExpectHalted();
+        Assert.Equal((ushort)0x0010, vm.Top); // 20 & 0xF = 4 → 1 << 4
+    }
+
+    [Fact]
+    public void Slr_Count16MasksToZeroShifts()
+    {
+        var vm = new TestVm().Load(0x1B10, 0x1C00, 0x8000, 0x1000, 0x2400); // count 16, value 0x8000
+        vm.Machine.Run();
+        vm.ExpectHalted();
+        Assert.Equal((ushort)0x8000, vm.Top); // 16 & 0xF = 0 → unchanged
+    }
+
+    [Fact]
+    public void Slr_Count20MasksToFour()
+    {
+        var vm = new TestVm().Load(0x1B14, 0x1C00, 0x8000, 0x1000, 0x2400); // count 20, value 0x8000
+        vm.Machine.Run();
+        vm.ExpectHalted();
+        Assert.Equal((ushort)0xF800, vm.Top); // (short)0x8000 >> 4 = 0xF800 (arithmetic)
+    }
+
+    [Fact]
+    public void Le_Ule_0x8000VsZero_SignedTrueUnsignedFalse()
+    {
+        var le = new TestVm().Load(0x1C00, 0x8000, 0x1C00, 0x0000, 0x1500, 0x2400);
+        le.Machine.Run();
+        le.ExpectHalted();
+        Assert.Equal((ushort)1, le.Top); // signed: −32768 ≤ 0
+
+        var ule = new TestVm().Load(0x1C00, 0x8000, 0x1C00, 0x0000, 0x1900, 0x2400);
+        ule.Machine.Run();
+        ule.ExpectHalted();
+        Assert.Equal((ushort)0, ule.Top); // unsigned: 32768 ≤ 0
+    }
+
+    [Fact]
+    public void Eq_Ne_PatternEqualityAbove0x8000()
+    {
+        var eq = new TestVm().Load(0x1C00, 0x8000, 0x1C00, 0x8000, 0x1100, 0x2400);
+        eq.Machine.Run();
+        eq.ExpectHalted();
+        Assert.Equal((ushort)1, eq.Top);
+
+        var ne = new TestVm().Load(0x1C00, 0x8000, 0x1C00, 0x8001, 0x1200, 0x2400);
+        ne.Machine.Run();
+        ne.ExpectHalted();
+        Assert.Equal((ushort)1, ne.Top);
+    }
 }

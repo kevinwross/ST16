@@ -106,20 +106,26 @@ public class SnapshotConfigTests
     [Fact]
     public void Determinism_TwoMachinesSameProgramSameInput_IdenticalTraces()
     {
-        (long Index, ushort Pc, Opcode Opcode, string Mnemonic)[] Trace(ST16Machine m, QueueInputSource input)
+        (List<(long, ushort, Opcode, string)> Trace, MachineState State, ushort Pc, long Ic, ushort Top) RunFresh()
         {
+            var input = new QueueInputSource();
+            input.Enqueue(0x41); // identical input sequence on both machines
+            var m = new ST16Machine(input, new StringOutputSink());
             m.Load(StarLoop);
-            input.Enqueue(0x41);
             var trace = new List<(long, ushort, Opcode, string)>();
             m.InstructionCompleted += e => trace.Add((e.Index, e.Pc, e.Instruction.Opcode, e.Instruction.Mnemonic));
             m.Run();
-            return trace.ToArray();
+            return (trace, m.State, m.Pc, m.InstructionCount, m.OperandStack[0]);
         }
 
-        var t1 = Trace(new ST16Machine(new QueueInputSource(), new StringOutputSink()), new QueueInputSource());
-        var t2 = Trace(new ST16Machine(new QueueInputSource(), new StringOutputSink()), new QueueInputSource());
-        Assert.Equal(t1, t2);
-        Assert.Equal(121, t1.Length);
+        var (t1, s1, pc1, ic1, top1) = RunFresh();
+        var (t2, s2, pc2, ic2, top2) = RunFresh();
+
+        Assert.Equal(t1, t2); // identical instruction-by-instruction trace
+        Assert.Equal(121, t1.Count);
+        Assert.Equal((s1, pc1, ic1, top1), (s2, pc2, ic2, top2)); // identical final state
+        Assert.Equal(MachineState.Halted, s1);
+        Assert.Equal(121L, ic1);
     }
 
     [Fact]

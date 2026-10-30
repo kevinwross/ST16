@@ -11,6 +11,7 @@ public sealed class ST16Machine
     private readonly FixedWordStack _operandStack;
     private readonly FixedWordStack _callStack;
     private readonly HashSet<ushort> _breakpoints = new();
+    private ushort? _resumeSkipBreakpoint;
     private readonly HashSet<ushort> _watchpoints = new();
 
     public ST16Machine(IInputSource input, IOutputSink output, St16Config? config = null)
@@ -122,6 +123,7 @@ public sealed class ST16Machine
         LastFault = FaultCode.None;
         FaultPc = 0;
         LastRunStop = RunStopReason.None;
+        _resumeSkipBreakpoint = null;
         State = MachineState.Paused;
     }
 
@@ -133,6 +135,9 @@ public sealed class ST16Machine
     /// Runs until a breakpoint, fault, HALT, or the instruction-limit watchdog
     /// (a stop, not a fault). In v1 faults and HALT are always terminal
     /// (break-on-fault / break-on-HALT are reserved for v1.1 trap vectors).
+    /// Continuing from a breakpoint stop skips that breakpoint on the first
+    /// fetch (the machine is already there), so a resume runs on instead of
+    /// re-stopping immediately.
     /// </summary>
     public void Run()
     {
@@ -147,10 +152,13 @@ public sealed class ST16Machine
                 LastRunStop = RunStopReason.Limit;
                 return;
             }
-            if (_breakpoints.Contains(Pc))
+            bool skipCurrentFetch = _resumeSkipBreakpoint == Pc;
+            _resumeSkipBreakpoint = null;
+            if (_breakpoints.Contains(Pc) && !skipCurrentFetch)
             {
                 State = MachineState.Paused;
                 LastRunStop = RunStopReason.Breakpoint;
+                _resumeSkipBreakpoint = Pc;
                 BreakpointHit?.Invoke(Pc);
                 return;
             }

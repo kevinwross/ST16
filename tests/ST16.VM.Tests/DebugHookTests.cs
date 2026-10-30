@@ -42,12 +42,19 @@ public class DebugHookTests
     }
 
     [Fact]
-    public void StepInto_OnFaultedMachine_ReturnsFalse()
+    public void Step_Into_Over_Out_OnFaultedMachine_ReturnFalseChangeNothing()
     {
-        var vm = new TestVm().Load(0x2100); // RET with empty call stack
+        // Faulted state reached via DIV0 (the CALLUF case is covered by
+        // FaultTests.CallUf_RetWithEmptyCallStack).
+        var vm = new TestVm().Load(0x1B05, 0x1B00, 0x0900, 0x2400); // PUSH 5, PUSH 0, DIV → DIV0 at pc 2
         vm.Machine.Run();
+        Assert.Equal(FaultCode.Div0, vm.Machine.LastFault);
         Assert.False(vm.Machine.StepInto());
-        Assert.Equal(FaultCode.CallUf, vm.Machine.LastFault);
+        Assert.False(vm.Machine.StepOver());
+        Assert.False(vm.Machine.StepOut());
+        Assert.Equal(2, vm.Machine.InstructionCount); // nothing advanced
+        Assert.Equal((ushort)0x0002, vm.Machine.Pc);
+        Assert.Equal(new ushort[] { 0, 5 }, vm.StackTopDown());
     }
 
     [Fact]
@@ -123,6 +130,30 @@ public class DebugHookTests
         vm.Machine.BreakpointHit += a => hits.Add(a);
         vm.Machine.Run();
         Assert.Equal(new[] { (ushort)0x0006 }, hits);
+    }
+
+    [Fact]
+    public void Breakpoint_SecondRunExecutesOneMoreLoop_StopsAgainAtSamePc()
+    {
+        var vm = new TestVm().Load(StarLoop);
+        vm.Machine.SetBreakpoint(0x0006);
+        var hits = new List<ushort>();
+        vm.Machine.BreakpointHit += a => hits.Add(a);
+
+        vm.Machine.Run(); // first stop at the loop top: prologue only (ic 4), DUP not executed
+        Assert.Equal((ushort)0x0006, vm.Machine.Pc);
+        Assert.Equal(4, vm.Machine.InstructionCount);
+        Assert.Equal(string.Empty, vm.Output.Text);
+
+        // Second Run with the breakpoint still set: exactly one full loop body
+        // (12 instructions) executes, then it stops again at 0x0006.
+        vm.Machine.Run();
+        Assert.Equal(MachineState.Paused, vm.Machine.State);
+        Assert.Equal(RunStopReason.Breakpoint, vm.Machine.LastRunStop);
+        Assert.Equal((ushort)0x0006, vm.Machine.Pc);
+        Assert.Equal(16, vm.Machine.InstructionCount); // 4 + one 12-instruction loop
+        Assert.Equal(new string('*', 1), vm.Output.Text); // exactly one star printed
+        Assert.Equal(new[] { (ushort)0x0006, (ushort)0x0006 }, hits);
     }
 
     // ---- Watchpoints (write-only) ----
@@ -264,9 +295,10 @@ public class DebugHookTests
     [Fact]
     public void Run_OnFaultedMachine_IsNoOp()
     {
-        var vm = new TestVm().Load(0x2100);
+        var vm = new TestVm().Load(0x1B05, 0x1B00, 0x0900, 0x2400); // DIV0 at pc 2
         vm.Machine.Run();
         var ic = vm.Machine.InstructionCount;
+        Assert.Equal(FaultCode.Div0, vm.Machine.LastFault);
         vm.Machine.Run();
         Assert.Equal(ic, vm.Machine.InstructionCount);
         Assert.Equal(MachineState.Faulted, vm.Machine.State);
