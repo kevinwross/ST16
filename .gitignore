@@ -11,3 +11,7 @@ artifacts/
 
 # Tests
 TestResults/
+
+# Local working areas (not committed)
+scratch/
+.tools/

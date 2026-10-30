@@ -5,6 +5,21 @@
 Amended during v1.0 review: operand and call stack depths raised from 16 to
 32 slots (see §2.1 and §10). No encoding or opcode changes.
 
+> **Erratum 2026-10-30 (encoding):** the §4 word-layout diagram as first
+> drafted contradicted every worked example in this document. The normative
+> encoding is the one the examples use: `word = (opcode << 8) | operand` —
+> opcode in the **high byte** (`0x00`–`0x3F`; bits 15–14 must be `0`), signed
+> **8-bit** immediate in the **low byte** (`PUSH`: −128…127; `JZ`/`JNZ`:
+> ±127 words). §§4, 5.4, 8.2, 9.3, 10, 12 updated to match; the §9.3 `JMP
+> loop` header corrected to `0x1F00` (`0x1F` = `JMP`; `0x21` is `RET`).
+>
+> **Erratum 2026-10-30 (starloop counter):** the §9.2/§9.3 starloop example
+> initialized its RAM counter with `PUSH 10` (`0x1B0A`), but the loop prints
+> before it checks the counter, so that image prints **11** asterisks, not
+> the 10 the example promises. The counter is now `PUSH 9` (`0x1B09`); all
+> other golden words are unchanged. This was caught by executing the golden
+> image on the reference engine.
+
 ST16 is a 16-bit, zero-address (stack) virtual CPU designed to teach computer
 architecture. Every value — data, addresses, branch targets — lives on the
 operand stack. There are no general-purpose registers and no flags register:
@@ -21,7 +36,7 @@ ports.
 | Explainable in one sentence per instruction | Zero-addressing; one operand format family |
 | No hidden state students can get wrong | No flags register; call stack is hidden but inspectable |
 | Real-world concepts without complexity | PC-relative branches, wrap-around overflow, memory-mapped I/O, traps (reserved) |
-| Room to grow | 23 of 64 opcode slots are reserved as student extension space |
+| Room to grow | 27 of 64 opcode slots are reserved as student extension space |
 
 **Explicit non-goals (v1):** byte addressing, trap vectors / exception
 handlers, multi-precision arithmetic, pipelining, interrupts.
@@ -107,27 +122,30 @@ The instruction stream is a sequence of 16-bit words. Every instruction
 begins with a header word:
 
 ```
- bit 15        10 | 9         0
+ bit 15         8 | 7          0
  ┌──────────────────┬─────────────┐
- │  opcode (6 bits) │ operand(10) │
+ │  opcode (byte)   │  operand    │
  └──────────────────┴─────────────┘
 ```
 
-- **Opcode:** bits 15–10. 64 possible values; 41 defined, 23 reserved
-  (reserved opcodes cause an **ILLOP** fault).
-- **Operand field:** bits 9–0. Its meaning depends on the instruction:
+- **Opcode:** high byte, bits 15–8. Values `0x00`…`0x3F` — 64 possible
+  opcodes; 37 defined, 27 reserved. Bits 15–14 must be `0`; a header word
+  with them set, or an opcode in `0x25`–`0x3F`, causes an **ILLOP** fault.
+  Decode: `opcode = (word >> 8) & 0x3F`.
+- **Operand field:** low byte, bits 7–0. Its meaning depends on the
+  instruction:
   - **ignored** — most instructions. The value is reserved (assemblers emit
     `0`); a conforming implementation must not depend on it.
-  - **signed 10-bit immediate** — `PUSH`. Two's complement, range −512…511.
-  - **signed 10-bit relative offset** — `JZ`, `JNZ`. Two's complement,
-    range −511…+511 words, measured **from the next instruction**:
+  - **signed 8-bit immediate** — `PUSH`. Two's complement, range −128…127.
+  - **signed 8-bit relative offset** — `JZ`, `JNZ`. Two's complement,
+    range −128…+127 words, measured **from the next instruction**:
     `target = (PC + 1) + offset`.
 - **Two-word instructions** — `PUSH16`, `JMP`, `CALL`. The header word's
   operand field is reserved (`0`); the following word is an **absolute 16-bit
   value** (literal, or jump/call target). After any two-word instruction the
   PC has advanced by 2.
 
-Branch distance note: `JZ`/`JNZ` reach ±511 words; anything farther (or an
+Branch distance note: `JZ`/`JNZ` reach ±127 words; anything farther (or an
 absolute target) uses `JMP`/`CALL`. This short/long distinction is
 intentional and mirrors real ISAs.
 
@@ -167,8 +185,8 @@ Results wrap modulo 2¹⁶; no overflow fault.
 | 0x0C | `OR` | `a b → a ∨ b` | Bitwise OR. |
 | 0x0D | `XOR` | `a b → a ⊕ b` | Bitwise XOR. |
 | 0x0E | `NOT` | `a → ~a` | Bitwise complement. |
-| 0x0F | `SLL` | `n c → c ≪ (n & 0xF)` | Shift left; **count** is popped first, masked to 0–15. |
-| 0x10 | `SLR` | `n c → c ≫ (n & 0xF)` | Arithmetic shift right (sign-extending). |
+| 0x0F | `SLL` | `n c → c ≪ (n & 0xF)` | Shift left; **value `c` is on top, count `n` second**; count masked to 0–15. |
+| 0x10 | `SLR` | `n c → c ≫ (n & 0xF)` | Arithmetic shift right (sign-extending); value on top, count second. |
 
 `DIV`/`MOD` fault with **DIV0** when the divisor `b` (top of stack) is zero.
 
@@ -197,7 +215,7 @@ unsigned magnitudes compare differently above `0x8000`.
 
 | Op | Mnemonic | Format | Stack effect | Description |
 |----|----------|--------|--------------|-------------|
-| 0x1B | `PUSH i` | 1 word | `→ i` | Push signed 10-bit immediate. |
+| 0x1B | `PUSH i` | 1 word | `→ i` | Push signed 8-bit immediate. |
 | 0x1C | `PUSH16 w` | 2 words | `→ w` | Push absolute 16-bit literal. |
 | 0x1D | `LOAD` | 1 word | `A → mem[A]` | Pop address, push its word. **ADDRF** if unmapped. |
 | 0x1E | `STORE` | 1 word | `v A →` | Pop address (top), then value; write `mem[A] = v`. **ADDRF** if unmapped. |
@@ -297,9 +315,9 @@ flat file of 16-bit words (little-endian byte pairs in the file).
 
 Operand ranges are checked at assembly time:
 
-- `PUSH`: −512…511.
+- `PUSH`: −128…127.
 - `JZ`/`JNZ`: label or integer; assembler computes the **relative offset**
-  `target − (instr_addr + 1)` and checks it fits in signed 10 bits.
+  `target − (instr_addr + 1)` and checks it fits in signed 8 bits.
 - `PUSH16`, `JMP`, `CALL`: 0…65535 or a label.
 
 ### 8.3 Directives
@@ -346,9 +364,9 @@ Call it:
 ```
 ; Print ten asterisks using a counter held in RAM.
 main:
-        PUSH 10
+        PUSH 9
         PUSH16 cnt
-        STORE             ; mem[cnt] = 10
+        STORE             ; mem[cnt] = 9
         PUSH16 0x2A       ; '*'
 loop:
         DUP               ; ... ch ch
@@ -371,17 +389,18 @@ cnt:
 ```
 
 Stack trace at the top of each loop iteration: `[ch, m]` (bottom → top),
-where `ch = 0x2A` and `m` counts down from 10.
+where `ch = 0x2A` and `m` counts down from 9 (the loop prints before it
+checks, so the counter reaches 0 after the last of the 10 prints).
 
 ### 9.3 What the example above compiles to
 
 `main` starts at `0x0000`. Remember: `PUSH16`/`JMP`/`CALL` are two-word
-instructions, the `PUSH` operand field is bits 9–0, and `JZ` encodes the
+instructions, the `PUSH` operand field is bits 7–0, and `JZ` encodes the
 signed offset from the **next** instruction.
 
 | Address | Hex word | Source |
 |---|---|---|
-| 0x0000 | `0x1B0A` | `PUSH 10` (op `0x1B`, imm `10` = `0x00A`) |
+| 0x0000 | `0x1B09` | `PUSH 9` (op `0x1B`, imm `9` = `0x009`) |
 | 0x0001 | `0x1C00` | `PUSH16 cnt` (header) |
 | 0x0002 | `0x0018` | `cnt` = `0x0018` |
 | 0x0003 | `0x1E00` | `STORE` |
@@ -391,16 +410,16 @@ signed offset from the **next** instruction.
 Full program — 25 words (offset: word):
 
 ```
-0x0000 0x1B0A   0x0001 0x1C00   0x0002 0x0018   0x0003 0x1E00
+0x0000 0x1B09   0x0001 0x1C00   0x0002 0x0018   0x0003 0x1E00
 0x0004 0x1C00   0x0005 0x002A   0x0006 0x0000   0x0007 0x1C00
 0x0008 0xF000   0x0009 0x1E00   0x000A 0x1C00   0x000B 0x0018
 0x000C 0x1D00   0x000D 0x0000   0x000E 0x2207   0x000F 0x1B01
 0x0010 0x0600   0x0011 0x1C00   0x0012 0x0018   0x0013 0x1E00
-0x0014 0x2100   0x0015 0x0006   0x0016 0x0400   0x0017 0x2400
+0x0014 0x1F00   0x0015 0x0006   0x0016 0x0400   0x0017 0x2400
 0x0018 0x0000
 ```
 
-Key points: `PUSH 10` is `0x1B0A` (the immediate lives in bits 9–0); the
+Key points: `PUSH 9` is `0x1B09` (the immediate lives in bits 7–0); the
 `JZ done` at `0x000E` encodes offset `+7` (next instruction `0x000F`,
 `done` at `0x0016`); the `JMP loop` at `0x0014` is a two-word absolute
 branch to `0x0006`.
@@ -424,7 +443,7 @@ branch to `0x0006`.
 - **No flags.** A flags register is the classic hidden-state trap in
   teaching. Pushing `0`/`1` makes data dependency explicit in every
   program — and makes a wrong `DROP` immediately visible on the stack view.
-- **Short and long branches.** 10-bit relative offsets force students to
+- **Short and long branches.** 8-bit relative offsets force students to
   encounter branch distance, a concept every real ISA has, without
   introducing a third instruction format.
 - **Memory-mapped I/O.** One addressing model for memory and devices,
@@ -457,8 +476,8 @@ changelog; the opcode table above is frozen for v1.
    implementations may expose both depths as configuration (see §2.1).
 3. 61,440 words of RAM at `0x0000`–`0xEFFF`; I/O ports at `0xF000`–`0xFFFF`
    as in §7.
-4. 6-bit opcode + 10-bit operand header; two-word forms for `PUSH16`,
-   `JMP`, `CALL` as in §4.
+4. Opcode byte (bits 15–8, values `0x00`–`0x3F`) + 8-bit operand (bits 7–0)
+   header; two-word forms for `PUSH16`, `JMP`, `CALL` as in §4.
 5. Semantics exactly as in §5; fault behavior exactly as in §6.
 6. One instruction per cycle; initial state as in §2.5; instruction files
    are little-endian 16-bit words.
