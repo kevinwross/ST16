@@ -262,3 +262,14 @@ accomplishments (a completed checklist task or a decision worth remembering).
 - **Tests:** n/a — no code yet. Ground rule set: `dotnet test` must pass before any checkbox is ticked.
 - **Remaining:** P1 user sign-off on the spec; all P2+ tasks.
 - **Next:** scaffold `ST16.sln` and start P2 core (word type, memory, configurable stacks).
+
+---
+
+### 2026-10-29 23:05:02 -07:00 — P1: spec frozen, single-exec design, git initialized
+
+- **Status:** spec v1.0 is frozen with user sign-off — **P1 complete**. All functionality will ship in one `st16.exe` with subcommands (`vm`, `cli`, `as`, `ds`, `cc`, no-arg → GUI). Local git repository initialized; .NET 10 confirmed as the target.
+- **Changes:** P1 sign-off checked; new `st16 command reference` + single-exec design (`ST16.App` entry point, engines stay separate UI-free libraries); interactive CLI REPL requirement (prompt → command → execute → loop back, `exit` to leave); git commit rule (commit per completed checklist item, hash noted in the log); plan.md updated to the single-exec design and .NET 10 LTS platform (the .NET 8 → 10 correction promised in the previous entry landed here); `.gitignore` added.
+- **Tests:** n/a — no code yet; `dotnet test` gate stands.
+- **Remaining:** P2 scaffold + core engine; P3/P3.5/P5 subcommand wiring.
+- **Next:** scaffold `ST16.sln` (`ST16.VM`, `ST16.App`, `tests/ST16.VM.Tests`), then word type + memory + configurable stacks.
+- **Commit:** `35dc39a` — P1: spec frozen (v1.0 sign-off), plan + implementation checklists, single-exec st16 design, git init (this log entry committed separately).
