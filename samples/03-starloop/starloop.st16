@@ -1,0 +1,28 @@
+; 03-starloop — print ten asterisks using a counter held in RAM.
+; (Spec §9.2, verbatim.)
+;
+; Expected console output: **********
+
+main:
+        PUSH 9
+        PUSH16 cnt
+        STORE             ; mem[cnt] = 9
+        PUSH16 0x2A       ; '*'
+loop:
+        DUP               ; ... ch ch
+        PUSH16 0xF000
+        STORE             ; ... ch      (print)
+        PUSH16 cnt
+        LOAD              ; ... ch m
+        DUP               ; ... ch m m
+        JZ done           ; ... ch m    (m consumed if taken)
+        PUSH 1
+        SUB               ; ... ch (m-1)
+        PUSH16 cnt
+        STORE             ; ... ch      (mem[cnt] = m-1)
+        JMP loop
+done:
+        DROP              ; (discard '*')
+        HALT
+cnt:
+        .dw 0

@@ -277,26 +277,35 @@ course topic.
 
 ### Assembly samples
 
-- [ ] `samples/` layout + `build-all` script (assembles every sample)
-- [ ] `hello` — console I/O, `STORE 0xF000`, `HALT`
-- [ ] `sq` + call site — `CALL`/`RET` discipline (spec §9.1)
-- [ ] `starloop` — loop with RAM counter (spec §9.2)
-- [ ] `fib` — iterative and recursive variants (recursive shows the call stack)
-- [ ] `bubble` — bubble sort over a RAM array (pointers, loops, `LOAD`/`STORE`)
-- [ ] `calc` — expression evaluator reading console in `0xF001` (I/O, subroutines, stack discipline)
+- [x] `samples/` layout + `build-all` script (assembles every sample)
+- [x] `hello` — console I/O, `STORE 0xF000`, `HALT`
+- [x] `sq` + call site — `CALL`/`RET` discipline (spec §9.1)
+- [x] `starloop` — loop with RAM counter (spec §9.2)
+- [x] `fib` — iterative and recursive variants (recursive shows the call stack)
+- [x] `bubble` — bubble sort over a RAM array (pointers, loops, `LOAD`/`STORE`)
+- [x] `calc` — expression evaluator reading console in `0xF001` (I/O, subroutines, stack discipline)
 
 ### C samples (via st16cc)
 
-- [ ] `factorial.c` — recursion, function calls
-- [ ] `gcd.c` — loops + functions
-- [ ] `stringrev.c` — pointers, arrays, strings
-- [ ] `binsearch.c` — pointers, control flow
-- [ ] `guess.c` — console I/O loop, a tiny game
+- [x] `factorial.c` — recursion, function calls
+- [x] `gcd.c` — loops + functions
+- [x] `stringrev.c` — pointers, arrays, strings
+- [x] `binsearch.c` — pointers, control flow
+- [x] `guess.c` — console I/O loop, a tiny game
 
 ### Docs & tests
 
-- [ ] Per-sample README: objective, expected console output, difficulty tag, discussion questions
-- [ ] Automated expected-output test for every sample (regression net for VM, assembler, and compiler)
+- [x] Per-sample README: objective, expected console output, difficulty tag, discussion questions
+- [x] Automated expected-output test for every sample (regression net for VM, assembler, and compiler)
+
+**Notes (P4):** `st16cc` gained a branch-range fixup pass in codegen
+(`FixBranchRanges`): any `JZ`/`JNZ` whose target is more than 127 words
+from the next instruction is rewritten as a short inverted branch plus an
+absolute `JMP` relay (`JZ far` → `JNZ skip; JMP far; skip:`), run to a
+fixed point. `11-guess` is the standing exercise: its `while` body lowers
+to >127 words, so the generated assembly contains `fix_N` relays. The
+same round fixed a codegen sign bug in postfix `--` (`PUSH -1; SUB`
+computed `v + 1`; now `PUSH 1; SUB`).
 
 ---
 
@@ -363,6 +372,16 @@ devices, byte addressing, multi-cycle timing model.
 
 Most recent entries first. Entries are appended at significant
 accomplishments (a completed checklist task or a decision worth remembering).
+
+---
+
+### 2026-10-31 03:26:34 -07:00 — P4: eleven teaching samples, all building, all green
+
+- **Status:** Phase 4 is done — `samples/` holds six assembly and five C-profile programs (01-hello … 11-guess), `samples/build-all.ps1` builds every one, and `tests/ST16.Samples.Tests` pins each sample's exact console output as a regression net across the VM, assembler, and compiler. All P4 checkboxes are ticked; plan table row 4 → ✅.
+- **Changes:** `samples/` (new): 11 directories, each with its source (`.st16` or `.c`), a `README.md` (objective, expected console output, difficulty tag, discussion questions), and the built `.bin`/`.st16d`; `samples/README.md` index; `samples/build-all.ps1` (builds `src/ST16.App` unless `-NoBuild`, then `st16 as`/`st16 cc` per directory, nonzero exit on first failure). `tests/ST16.Samples.Tests/` (new, xunit, 12 tests): one `[InlineData]` test per sample (source → assemble/compile → `ST16Machine` with `QueueInputSource`/`StringOutputSink` → assert `Halted` + exact output; inputs `7*8=` for 06-calc and `397` for 11-guess) plus a coverage test that the directory listing matches the test table. `ST16.slnx`: Samples.Tests added under `/tests/`.
+- **Changes (tooling, forced by the samples):** `src/ST16.CC/CCodegen.cs`: new `FixBranchRanges` pass — `JZ`/`JNZ` targets more than 127 words from the next instruction are rewritten as a short inverted branch plus an absolute `JMP` relay (`JZ far` → `JNZ skip; JMP far; skip:`), run to a fixed point (≤200 passes); without it `11-guess` fails assembly (its `while` body lowers to >127 words). `src/ST16.CC/CCodegen.Expr.cs`: postfix `--` emitted `PUSH -1; SUB`, which computes `v − (−1) = v + 1` (SUB takes the top as the right operand) — now `PUSH 1; SUB`; `p--` was silently incrementing, which sent `stringrev`'s pointers into the port region (ADDRF after ~421k instructions).
+- **Bugs found while writing the hand-assembled samples** (each is a sample README discussion question now): STORE takes (value = second, top = address) — a `SWAP` before the store, or a `DROP` after a print `STORE`, is the most common breakage; comparisons **consume both operands**, so `GT` + `JZ` leaves nothing for the swap stores (bubble reloads from RAM); the `(a,b) ← (b, a+b)` step must read `b` before overwriting `a`; the `JZ`-exits-on-zero convention inverts the exit test of a counting-down loop (`JZ` vs `JNZ`); and a recursive body must keep `n` under both `CALL` results (`DUP; PUSH 2; SUB` after the first call operates on `f(n−1)`, not `n`).
+- **Tests:** `ST16.Samples.Tests` 12/12; regression `ST16.VM.Tests` 136/136, `ST16.Assembler.Tests` 141/141, `ST16.CC.Tests` 60/60 (the two codegen changes are covered by the existing suite plus the new end-to-end pins).
 
 ---
 

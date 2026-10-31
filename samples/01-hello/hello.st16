@@ -1,0 +1,42 @@
+; 01-hello — print a NUL-terminated string from RAM, one character at a time.
+;
+; Console out is port 0xF000 (low byte written). The string lives in RAM
+; after the code; a RAM index walks it until the terminating 0 is found.
+;
+; Expected console output: Hello, ST16! + newline
+
+main:
+    PUSH 0                  ; i = 0
+    PUSH16 i
+    STORE
+next:
+    PUSH16 i
+    LOAD
+    PUSH16 msg
+    ADD
+    LOAD                    ; [c]
+    JZ end                  ; c == 0: done (condition consumed)
+    PUSH16 i
+    LOAD
+    PUSH16 msg
+    ADD
+    LOAD                    ; [c]     (the character)
+    PUSH16 0xF000
+    STORE                   ; ()      (print)
+    PUSH16 i
+    LOAD
+    PUSH 1
+    ADD
+    PUSH16 i
+    STORE
+    JMP next
+end:
+    PUSH 10                 ; newline
+    PUSH16 0xF000
+    STORE
+    HALT
+
+msg:
+    .dw 72, 101, 108, 108, 111, 44, 32, 83, 84, 49, 54, 33, 0   ; "Hello, ST16!\0"
+i:
+    .dw 0

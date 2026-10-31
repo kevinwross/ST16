@@ -260,7 +260,10 @@ public partial class CCodegen
         _st.Swap();                            // [v, a]
         _st.Dup();                             // [v, a, a]
         _st.Load();                            // [v, a, v]
-        PushIntScalar(p.IsDec ? -1 : 1);       // [v, a, v, d]
+        // SUB/ADD take the top as the right operand (wa − wb / wa + wb), so
+        // the delta is pushed positive and the opcode carries the sign:
+        // v++ = PUSH 1, ADD (v + 1); v-- = PUSH 1, SUB (v − 1).
+        PushIntScalar(1);                      // [v, a, v, 1]
         _st.Op(p.IsDec ? "SUB" : "ADD");       // [v, a, new]
         _st.Swap();                            // [v, new, a]
         _st.Store();                           // [v]

@@ -10,5 +10,6 @@
     <Project Path="tests/ST16.VM.Tests/ST16.VM.Tests.csproj" />
     <Project Path="tests/ST16.Assembler.Tests/ST16.Assembler.Tests.csproj" />
     <Project Path="tests/ST16.CC.Tests/ST16.CC.Tests.csproj" />
+    <Project Path="tests/ST16.Samples.Tests/ST16.Samples.Tests.csproj" />
   </Folder>
 </Solution>

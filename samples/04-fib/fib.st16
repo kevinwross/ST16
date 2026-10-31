@@ -1,0 +1,120 @@
+; 04-fib — Fibonacci(10) two ways:
+;   1. iterative, with a, b, i held in RAM;
+;   2. recursive, pure stack — no RAM at all; in the debugger the call
+;      stack grows to ten frames before it unwinds.
+; Both variants print their 2-digit result; the space between them is
+; printed explicitly.
+;
+; Expected console output: 55 55 + newline
+
+main:
+    ; ---- iterative: a = 0, b = 1; nine steps of (a, b) <- (b, a + b) ----
+    PUSH 0
+    PUSH16 ia
+    STORE
+    PUSH 1
+    PUSH16 ib
+    STORE
+    PUSH 9
+    PUSH16 ii
+    STORE
+it_loop:
+    PUSH16 ii
+    LOAD
+    JZ it_done
+    PUSH16 ia
+    LOAD                      ; [a]
+    PUSH16 ib
+    LOAD                      ; [a, b]
+    PUSH16 ia
+    STORE                     ; a = b       [a]   (top = address, second = value)
+    PUSH16 ib
+    LOAD
+    ADD
+    PUSH16 ib
+    STORE                     ; b = a + b   []
+    PUSH16 ii
+    LOAD
+    PUSH 1
+    SUB
+    PUSH16 ii
+    STORE
+    JMP it_loop
+it_done:
+    PUSH16 ib
+    LOAD                      ; [55]
+    DUP
+    PUSH 10
+    DIV                       ; [55, 5]
+    PUSH 48
+    ADD                       ; [55, '5']
+    DUP
+    PUSH16 0xF000
+    STORE
+    DROP                      ; [55]
+    PUSH 10
+    MOD                       ; [5]
+    PUSH 48
+    ADD
+    DUP
+    PUSH16 0xF000
+    STORE
+    DROP
+
+    ; ---- separator, then the recursive variant ----
+    PUSH 32                   ; ' '
+    PUSH16 0xF000
+    STORE
+    PUSH 10
+    CALL fib_r                ; [55]
+    DUP
+    PUSH 10
+    DIV
+    PUSH 48
+    ADD
+    DUP
+    PUSH16 0xF000
+    STORE
+    DROP
+    PUSH 10
+    MOD
+    PUSH 48
+    ADD
+    DUP
+    PUSH16 0xF000
+    STORE
+    DROP
+    PUSH 10                   ; newline
+    PUSH16 0xF000
+    STORE
+    HALT
+
+fib_r:                         ; [n] → [fib(n)]
+    DUP
+    PUSH 2
+    LT                        ; [n, n < 2]
+    JZ rec
+    RET                       ; n < 2: return n
+rec:
+    ; stack discipline: keep n under the results of both calls
+    DUP
+    PUSH 1
+    SUB
+    CALL fib_r                ; [n, f(n-1)]
+    SWAP                      ; [f(n-1), n]
+    DUP
+    PUSH 2
+    SUB
+    CALL fib_r                ; [f(n-1), n, f(n-2)]
+    ROT                       ; [n, f(n-2), f(n-1)]
+    ADD                       ; [n, f(n-1)+f(n-2)]
+    SWAP
+    DROP
+    RET
+
+ia:
+    .dw 0
+ib:
+    .dw 0
+ii:
+    .dw 0

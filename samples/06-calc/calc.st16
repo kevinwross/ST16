@@ -1,0 +1,108 @@
+; 06-calc — a tiny two-operand calculator reading the console.
+;
+; Input format: one digit, an operator ('+' '-' '*' or '/'), one digit,
+; '=' — e.g. "7*8=". The result (0..99) is printed without a leading zero.
+; Division is the VM's truncated signed DIV.
+;
+; Console in is port 0xF001 (a byte, or 0xFFFF when exhausted);
+; console out is 0xF000.
+;
+; Expected console output for input "7*8=": 56 + newline
+
+main:
+    PUSH16 0xF001
+    LOAD
+    PUSH 48                   ; ASCII '0'
+    SUB
+    PUSH16 v1
+    STORE                     ; v1 = first digit
+    PUSH16 0xF001
+    LOAD
+    PUSH16 op
+    STORE                     ; op = operator byte
+    PUSH16 0xF001
+    LOAD
+    PUSH 48
+    SUB
+    PUSH16 v2
+    STORE                     ; v2 = second digit
+    PUSH16 0xF001
+    LOAD
+    DROP                      ; discard the '='
+    PUSH16 op
+    LOAD
+    PUSH 43                   ; '+'
+    EQ
+    JZ not_plus
+    PUSH16 v1
+    LOAD
+    PUSH16 v2
+    LOAD
+    ADD
+    JMP have_result
+not_plus:
+    PUSH16 op
+    LOAD
+    PUSH 45                   ; '-'
+    EQ
+    JZ not_minus
+    PUSH16 v1
+    LOAD
+    PUSH16 v2
+    LOAD
+    SUB
+    JMP have_result
+not_minus:
+    PUSH16 op
+    LOAD
+    PUSH 42                   ; '*'
+    EQ
+    JZ do_div
+    PUSH16 v1
+    LOAD
+    PUSH16 v2
+    LOAD
+    MUL
+    JMP have_result
+do_div:
+    PUSH16 v1
+    LOAD
+    PUSH16 v2
+    LOAD
+    DIV
+    JMP have_result
+have_result:                   ; [r], 0..99
+    DUP
+    PUSH 10
+    DIV
+    PUSH 48
+    ADD                       ; [r, t]  (t = '0' + tens)
+    DUP
+    PUSH 48
+    SUB                       ; [r, t, tens]
+    JZ no_tens                ; (tens consumed)  [r, t]
+    PUSH16 0xF000
+    STORE                     ; print t        [r]
+    JMP print_ones
+no_tens:                       ; [r, t]
+    DROP                      ; [r]
+print_ones:
+    PUSH 10
+    MOD
+    PUSH 48
+    ADD
+    DUP
+    PUSH16 0xF000
+    STORE
+    DROP
+    PUSH 10
+    PUSH16 0xF000
+    STORE
+    HALT
+
+v1:
+    .dw 0
+v2:
+    .dw 0
+op:
+    .dw 0

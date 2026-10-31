@@ -1,0 +1,140 @@
+; 05-bubble — bubble-sort a 5-element RAM array and print it.
+;
+; arr = [3, 1, 4, 1, 5]. Four passes; pass p compares the adjacent pairs
+; up to index p (the tail of the array is already sorted). Each swapped
+; pair is written back through STORE; the sorted array [1, 1, 3, 4, 5]
+; is printed digit by digit.
+;
+; Expected console output: 11345 + newline
+
+main:
+    PUSH 3                    ; pass counts down: 3, 2, 1, 0
+    PUSH16 pass
+    STORE
+pass_loop:
+    PUSH16 pass
+    LOAD
+    PUSH 0
+    LT                        ; [c]  (pass < 0)
+    JNZ sorted
+    PUSH16 pass
+    LOAD
+    PUSH16 lim
+    STORE                     ; lim = pass (last inner index)
+    PUSH 0
+    PUSH16 i
+    STORE
+inner:
+    PUSH16 i
+    LOAD
+    PUSH16 lim
+    LOAD
+    LT                        ; [c]  (i < lim)
+    JZ pass_next
+    PUSH16 i
+    LOAD
+    PUSH16 arr
+    ADD                       ; [a1]
+    PUSH16 i
+    LOAD
+    PUSH 1
+    ADD
+    PUSH16 arr
+    ADD                       ; [a1, a2]
+    DUP
+    LOAD
+    ROT
+    LOAD                      ; [a2, v2, v1]
+    ROT
+    DROP                      ; [v2, v1]
+    SWAP                      ; [v1, v2]
+    OVER
+    SWAP
+    GT                        ; [c]  (v1 > v2) — consumes v1 and v2
+    JZ inner_next
+    ; reload both values (the comparison consumed them)
+    PUSH16 i
+    LOAD
+    PUSH16 arr
+    ADD
+    LOAD                      ; [v1]
+    PUSH16 i
+    LOAD
+    PUSH 1
+    ADD
+    PUSH16 arr
+    ADD
+    LOAD                      ; [v1, v2]
+    ; STORE takes (second = value, top = address)
+    PUSH16 i
+    LOAD
+    PUSH16 arr
+    ADD
+    STORE                     ; arr[i] = v2     [v1]
+    PUSH16 i
+    LOAD
+    PUSH 1
+    ADD
+    PUSH16 arr
+    ADD
+    STORE                     ; arr[i+1] = v1   []
+inner_next:
+    PUSH16 i
+    LOAD
+    PUSH 1
+    ADD
+    PUSH16 i
+    STORE
+    JMP inner
+pass_next:
+    PUSH16 pass
+    LOAD
+    PUSH 1
+    SUB
+    PUSH16 pass
+    STORE
+    JMP pass_loop
+sorted:
+    PUSH 0
+    PUSH16 pi
+    STORE
+print:
+    PUSH16 pi
+    LOAD
+    PUSH 5
+    LT                        ; [c]
+    JZ fini
+    PUSH16 pi
+    LOAD
+    PUSH16 arr
+    ADD
+    LOAD
+    PUSH 48
+    ADD                       ; digit -> ASCII
+    DUP
+    PUSH16 0xF000
+    STORE
+    DROP
+    PUSH16 pi
+    LOAD
+    PUSH 1
+    ADD
+    PUSH16 pi
+    STORE
+    JMP print
+fini:
+    PUSH 10
+    PUSH16 0xF000
+    STORE
+    HALT
+
+arr:
+    .dw 3, 1, 4, 1, 5
+pass:
+    .dw 0
+i:
+    .dw 0
+lim:
+    .dw 0
+pi:
+    .dw 0
