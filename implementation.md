@@ -166,6 +166,11 @@ Every object (scalar or array element, incl. `char`) occupies exactly one
 16-bit word, so pointer arithmetic is word-granular. `sizeof` reports the C
 standard values (`int`/`short` = 2, `char` = 1); layout is uniformly
 1 word/object (documented divergence, like a 16-bit C target).
+**Literal natural type:** an integer literal whose value only fits in
+0x8000..0xFFFF (e.g. `60000`) has natural type `unsigned int` — the only
+16-bit type that holds it — which selects unsigned comparisons and the
+software unsigned division below; storing it into `int` is a compile error
+(`constant 60000 does not fit in type 'int'`).
 
 **Memory layout (fixed).**
 
@@ -175,7 +180,7 @@ standard values (`int`/`short` = 2, `char` = 1); layout is uniformly
 | free | …0xDFFF | — |
 | frame area | ≤ 0xDFFF | grows down from 0xDFFF |
 | SP word | 0xE000 | frame top; initial value 0xE000 (a data word) |
-| globals | 0xE001…0xEFFF | globals + string literals (4094 words) |
+| globals | 0xE001…0xEFFF | globals + string literals, then 2 compiler-reserved scratch words (`st16cc_scratch`: unsigned-div quotient + divisor; see below) |
 
 Overflow of code (>0x9FFF) or globals (>0xEFFF) is a compile error.
 
@@ -183,28 +188,49 @@ Overflow of code (>0x9FFF) or globals (>0xEFFF) is a compile error.
 return value is left on the stack and discarded). Missing `main` or a
 `main` with parameters is an error.
 
-**Calling convention (JVM-style).** Arguments pushed right-to-left on the
-operand stack (values, 16-bit); the **callee** cleans up (pops the
-arguments during its prologue, materializing each into its frame slot);
-the result is returned on top. Every function's frame starts with its
-parameter slots (slot 0 = first parameter), so `&param` is legal.
+**Calling convention (JVM-style, caller stores arguments).** The **caller**
+evaluates each argument (left-to-right) and stores it directly into the
+callee's frame — argument *i* (0-based) at `old-SP − (calleeFrame − i)`,
+i.e. the callee's slot *i* — then `CALL`s (two words: `0x2000`, target).
+The callee's prologue lowers SP by the full frame, so the arguments are
+already in slots 0..p−1; nothing is popped. The result is returned on top
+of the operand stack (RET pops the call stack only). Every function's frame
+starts with its parameter slots (slot 0 = first parameter), so `&param` is
+legal.
 
 **Frame model.** Per-function RAM frame allocated off the SP word at 0xE000.
-`frameSize = params + locals + spills`. Prologue:
-`SP ← [SP] − frameSize`; then pop each argument into its slot (top first,
-i.e. last parameter into slot p−1 down to slot 0). Epilogue / every
-`return`: `SP ← [SP] + frameSize` (old SP = new SP + frameSize — no saved
-slot needed), then RET. Locals at slots p..p+l−1; spill slots after.
+`frameSize = params + locals + spillBudget` (16); slot 0..p−1 = parameters
+(stored by the caller), p..p+l−1 = locals, p+l.. = spill slots — the whole
+frame is what the prologue reserves, so a callee's spill slots never
+overlap the caller's frame. Prologue: `SP ← [SP] − frameSize`. Epilogue /
+every `return`: `SP ← [SP] + frameSize` (old SP = new SP + frameSize — no
+saved slot needed), then RET.
 `LOAD local i` = `PUSH16 0xE000; LOAD; PUSH i; ADD; LOAD`;
 `STORE local i` = (value on stack) `PUSH16 0xE000; LOAD; PUSH i; ADD; STORE`.
 Globals are direct: `PUSH16 <addr>; LOAD` / `PUSH16 <addr>; STORE`.
 
+**VM operand semantics the codegen relies on** (verified against
+`ST16Machine`/`Word`): all binary arithmetic/comparisons read `wa` = second
+and `wb` = top, so `Emit(L); Emit(R)` gives `L op R` directly; comparisons
+**pop both operands** and push 1/0; `SUB` = wa − wb; `DIV`/`MOD` =
+truncated **signed** wa ÷ wb (divisor = top); `SLL`/`SLR` take the value
+on top and the count second (codegen SWAPs); `STORE` consumes
+(second = value, top = address); `JZ`/`JNZ` pop the condition. Because the
+VM's division is signed-only, **unsigned `/` and `%` on values ≥ 0x8000
+lower to a software subtraction loop** (while u ≥ v: u −= v, q++) with the
+quotient and divisor kept in the two `st16cc_scratch` words; division by
+zero is undefined (documented UB, loops forever).
+
 **Operand-stack spilling.** The codegen tracks current stack depth; max
 allowed depth is 28 (safety margin under the VM's 32). Before pushing, if
 the depth limit would be exceeded the oldest stack value is spilled to the
-next frame spill slot (`STORE`) and reloaded (`LOAD`) exactly when that
-depth level is reached again — visible in `-S` output as
-`PUSH16 0xE000; LOAD; PUSH <slot>; ADD; STORE/LOAD` pairs.
+function's next spill slot (`STORE`) and reloaded (`LOAD`) exactly when
+that depth level is reached again — visible in `-S` output as
+`PUSH16 0xE000; LOAD; PUSH <slot>; ADD; STORE/LOAD` pairs. Spill slot
+numbers start at p + l (after the parameter and local slots) and the base
+is per-function. When a *second* (older) operand is reloaded for a binary
+op it is loaded and then `SWAP`ed back under the live top so the
+`wa op wb` ordering holds.
 
 **Line markers → .st16d post-process.** The compiler emits `.asm` with a
 marker comment on its own line, `; L<line>`, before each statement/
@@ -222,24 +248,24 @@ STORE` (low byte written); `getchar()` → `PUSH16 0xF001; LOAD` (byte, or
 
 ### Front end
 
-- [ ] `src/ST16.CC` project; C lexer for the core subset: keywords, identifiers, 16-bit integer literals, char/string literals, all core-subset operators, line/column tracking
-- [ ] Parser: declarations (local/global scalars + fixed-size arrays, `const`, initializers), function definitions, full expression precedence (arithmetic, bitwise, shift, relational, logical, compound assignment, ternary, `++`/`--`, `sizeof`), statements (`if`/`else`, `while`, `do-while`, `for`, `break`, `continue`, `return`, `goto` with local labels)
-- [ ] Semantic analysis: ST16 target profile (16-bit `int`/`short`, 8-bit `char` in low byte); scope rules; pointer/array compatibility; line-referenced diagnostics; clear "not supported in ST16 profile" errors for structs, unions, floats, variadics, macros
+- [x] `src/ST16.CC` project; C lexer for the core subset: keywords, identifiers, 16-bit integer literals, char/string literals, all core-subset operators, line/column tracking
+- [x] Parser: declarations (local/global scalars + fixed-size arrays, `const`, initializers), function definitions, full expression precedence (arithmetic, bitwise, shift, relational, logical, compound assignment, ternary, `++`/`--`, `sizeof`), statements (`if`/`else`, `while`, `do-while`, `for`, `break`, `continue`, `return`, `goto` with local labels)
+- [x] Semantic analysis: ST16 target profile (16-bit `int`/`short`, 8-bit `char` in low byte); scope rules; pointer/array compatibility; line-referenced diagnostics; clear "not supported in ST16 profile" errors for structs, unions, floats, variadics, macros
 
 ### Code generation
 
-- [ ] Expression trees → stack ops; `-S` emits the intermediate `.asm`
-- [ ] Calling convention: arguments pushed right-to-left on the operand stack; callee cleans up; result returned on top
-- [ ] Frame model: reserved stack-pointer word in RAM; per-function RAM frames for locals; recursion supported
-- [ ] Temp spilling to memory when the 32-slot operand stack limit is exceeded (spills visible in `-S` output)
-- [ ] `.st16d` emission reusing the phase-3 format: the compiler emits line markers as `;` comments in the `.asm`, runs the phase-3 assembler, and post-processes the resulting `.st16d` (replaces `sources[]` with the `.c` text, re-maps `lines[]` through the markers); `functions[]` for call-stack display
+- [x] Expression trees → stack ops; `-S` emits the intermediate `.asm`
+- [x] Calling convention: arguments stored by the caller into the callee's frame slots (right-to-left frame layout, slot 0 = first parameter); result returned on top
+- [x] Frame model: reserved stack-pointer word in RAM; per-function RAM frames for locals; recursion supported
+- [x] Temp spilling to memory when the 32-slot operand stack limit is exceeded (spills visible in `-S` output)
+- [x] `.st16d` emission reusing the phase-3 format: the compiler emits line markers as `;` comments in the `.asm`, runs the phase-3 assembler, and post-processes the resulting `.st16d` (replaces `sources[]` with the `.c` text, re-maps `lines[]` through the markers); `functions[]` for call-stack display
 
 ### CLI & tests
 
-- [ ] `st16 cc` subcommand: `st16 cc prog.c -o prog.s` (stop at assembly) or `st16 cc prog.c` (full pipeline → `prog.bin` + `prog.st16d`)
-- [ ] Golden-assembly tests for the key idioms: `if`/`while`/`for` lowering, array indexing, pointer arithmetic, recursion, function calls
-- [ ] Differential corpus: C programs with reference console output, compiled and executed on the VM
-- [ ] Diagnostic tests: unsupported-feature rejections name the construct and line
+- [x] `st16 cc` subcommand: `st16 cc prog.c -o prog.s` (stop at assembly) or `st16 cc prog.c` (full pipeline → `prog.bin` + `prog.st16d`)
+- [x] Golden-assembly tests for the key idioms: `if`/`while`/`for` lowering, array indexing, pointer arithmetic, recursion, function calls
+- [x] Differential corpus: C programs with reference console output, compiled and executed on the VM
+- [x] Diagnostic tests: unsupported-feature rejections name the construct and line
 
 ---
 
@@ -337,6 +363,15 @@ devices, byte addressing, multi-cycle timing model.
 
 Most recent entries first. Entries are appended at significant
 accomplishments (a completed checklist task or a decision worth remembering).
+
+---
+
+### 2026-10-31 01:30:02 -07:00 — P3.5: st16cc complete (60-test suite; `.c` → `.bin` + `.st16d`)
+
+- **Status:** Phase 3.5 is done — `st16 cc prog.c` compiles the core-C subset to ST16 assembly, assembles it, and post-processes the `.st16d` so every instruction maps to a `.c` line; a recursive C program with arrays and pointers compiles, runs correctly on the VM, and is debuggable end-to-end. All P3.5 checkboxes are ticked; plan table 3.5 → ✅.
+- **Changes:** `src/ST16.CC/` (new): `CLexer` (keywords/idents/16-bit int + char/string literals with escapes, three-char operators, line/column tracking, >0xFFFF and multi-char-literal rejections), `CParser` (full precedence climbing; declarations with initializers incl. `{ … }` lists and inferred array sizes; prototypes; statements incl. `goto` with local labels; unsupported-keyword rejections), `CSemantics` (scopes, parameter/local slot numbering 0..p−1 then locals, arg-count checks against definitions **and** prototypes, const/assignability rules incl. the literal natural-type rule, return/void discipline, break/continue loop checks, global-constant initializers), `CStackManager` (depth tracking, spill/reload at the 28-slot limit, `EnsureTopLive(2)` reload+`SWAP` for a spilled second operand), `CCodegen` + `CCodegen.Expr` (frame prologue/epilogue off the SP word, caller-stores-arguments calling convention, char sign-extend/mask idioms, software unsigned `/`/`%` subtraction loop over two `st16cc_scratch` cells, `putchar`/`getchar` port builtins), `CCPipeline` (assemble + `.st16d` post-process: sources ← the `.c` text, lines remapped through `; L<n>` markers, symbols/functions carry through). `src/ST16.App/`: `st16 cc` subcommand (`CcCommand`; `-o` stops at `.s`; default full pipeline to `.bin` + `.st16d`). `tests/ST16.CC.Tests/` (new, 60 tests): `DifferentialTests` (14 programs compiled + executed on the real VM: recursion `fib(20)`, loops/break/continue, char/unsigned-char, pointers + nested calls, `getchar` input port, forward declarations, ternary/`sizeof`/`goto`/do-while, signed division truncation **and** the unsigned software loop, global array + string + const initializers, short-circuit evaluation), `StackManagerTests` (7: spill/reload idioms word-for-word, budget overflow), `LexerTests`, `SemanticsTests` (diagnostic messages with line info), `PipelineTests` (`.st16d` sources/lines remap, symbols, entry line), `GoldenTests` (pinned assembly for small programs + entry-stub word layout).
+- **Bugs found and fixed this phase:** (1) unsigned division read the VM's **signed** `DIV` and literals above 0x7FFF got signed type → natural-type literal rule + software unsigned loop; (2) the loop's `UGE` consumes **both** operands, so the first draft faulted on an empty stack — the divisor is parked in a second scratch cell and the compare idiom `LOAD v; SWAP; DUP; ROT` rebuilds the operands each iteration; (3) array/scalar global initializers emitted `.dw 0061` (no `0x` prefix) so the assembler read decimal — string bytes were silently corrupted (`'a'` → 61); (4) `ParseTypeSpecifier` returned on `void` **without advancing**, so `void f() { }` parsed `void` as a variable name — the token is now consumed; (5) **latent frame clobber:** the spill-slot base was a constant (16) for every function, so a function with ≥2 params+locals placed spill slots outside its reserved frame (into the caller's frame); the manager is now created per function with base = params+locals and the frame is params+locals+spillBudget (a probe `fib(10)` exposed it after a frame-size change that double-counted parameters — reverted); (6) `CBlock.Line` was the first statement's line, not the brace's, and `CFuncDef.Line` followed it — function line markers (and `.st16d` entries) now use the header line.
+- **Tests:** `ST16.CC.Tests` 60/60; full regression `ST16.VM.Tests` 136/136 and `ST16.Assembler.Tests` 141/141 unchanged.
 
 ---
 

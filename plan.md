@@ -13,7 +13,7 @@ and when a phase is done.
 | 1 | ISA specification v1.0 | `docs/` | ✅ complete (draft, under review) |
 | 2 | Virtual Machine with debugging hooks + CLI | `ST16.VM`, `ST16.App` | ✅ complete |
 | 3 | Assembler, disassembler, `.st16d` debug symbols | `ST16.Assembler`, `ST16.Disassembler` | ✅ complete |
-| 3.5 | C compiler (core C subset) | `ST16.CC` | pending |
+| 3.5 | C compiler (core C subset) | `ST16.CC` | ✅ |
 | 4 | Sample program library | `samples/` | pending |
 | 5 | WPF debug GUI (combined source + disassembly) | `ST16.Gui` | pending — **must have** |
 | 6 (someday) | Verilog reference implementation | `rtl/` | not scheduled |
@@ -168,9 +168,11 @@ visible, and where the GUI's source view shows `.c` files instead of assembly.
 - **Code generation:**
   - Expression trees lower directly to stack ops — the teaching core of this
     phase; `-S` emits the intermediate `.asm` for inspection.
-  - **Calling convention:** arguments pushed right-to-left on the operand
-    stack; the callee cleans up; result returned on top of the stack (JVM-
-    style, matches how `CALL`/`RET` already work).
+  - **Calling convention:** the caller stores each argument into the
+    callee's frame slot (slot 0 = first parameter); the callee's prologue
+    lowers SP by the full frame (params + locals + spill budget); result
+    returned on top of the stack (JVM-style; matches how `CALL`/`RET`
+    already work).
   - **Frame model:** locals live in RAM in per-function frames allocated off a
     reserved stack-pointer word, so **recursion works** and the 32-slot
     operand stack is reserved for arguments, results, and short-lived

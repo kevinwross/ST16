@@ -37,6 +37,8 @@ internal static class Program
                 return AsCommand.Run(args[1..]);
             case "ds":
                 return DsCommand.Run(args[1..]);
+            case "cc":
+                return CcCommand.Run(args[1..]);
             default:
                 Console.Error.WriteLine($"error: unknown command '{args[0]}'");
                 PrintUsage(Console.Error);
@@ -55,6 +57,7 @@ internal static class Program
         writer.WriteLine("  as <in.st16> [-o out.bin] [-d out.st16d]");
         writer.WriteLine("                                assemble to a binary image + .st16d debug symbols");
         writer.WriteLine("  ds <out.bin> [-d in.st16d]    disassemble to annotated assembly (stdout)");
+        writer.WriteLine("  cc <prog.c> [-o out.s]        compile the ST16 C core subset to .s/.bin/.st16d");
         writer.WriteLine("  help, --help                  show this help and exit");
         writer.WriteLine("  --version, -v                 print the version and exit");
         writer.WriteLine();

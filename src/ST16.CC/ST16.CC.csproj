@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>ST16.CC</RootNamespace>
+    <AssemblyName>st16cc</AssemblyName>
+    <Description>st16cc — the ST16 C compiler (core C subset to ST16 assembly).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ST16.VM\ST16.VM.csproj" />
+    <ProjectReference Include="..\ST16.Assembler\ST16.Assembler.csproj" />
+  </ItemGroup>
+
+</Project>
