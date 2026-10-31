@@ -5,11 +5,13 @@
     <Project Path="src/ST16.Assembler/ST16.Assembler.csproj" />
     <Project Path="src/ST16.Disassembler/ST16.Disassembler.csproj" />
     <Project Path="src/ST16.CC/ST16.CC.csproj" />
+    <Project Path="src/ST16.Gui/ST16.Gui.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ST16.VM.Tests/ST16.VM.Tests.csproj" />
     <Project Path="tests/ST16.Assembler.Tests/ST16.Assembler.Tests.csproj" />
     <Project Path="tests/ST16.CC.Tests/ST16.CC.Tests.csproj" />
     <Project Path="tests/ST16.Samples.Tests/ST16.Samples.Tests.csproj" />
+    <Project Path="tests/ST16.Gui.Tests/ST16.Gui.Tests.csproj" />
   </Folder>
 </Solution>

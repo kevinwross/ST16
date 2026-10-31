@@ -15,7 +15,7 @@ and when a phase is done.
 | 3 | Assembler, disassembler, `.st16d` debug symbols | `ST16.Assembler`, `ST16.Disassembler` | ✅ complete |
 | 3.5 | C compiler (core C subset) | `ST16.CC` | ✅ |
 | 4 | Sample program library | `samples/` | ✅ |
-| 5 | WPF debug GUI (combined source + disassembly) | `ST16.Gui` | pending — **must have** |
+| 5 | WPF debug GUI (combined source + disassembly) | `ST16.Gui` | ✅ |
 | 6 (someday) | Verilog reference implementation | `rtl/` | not scheduled |
 
 All phases build against the frozen spec in

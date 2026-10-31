@@ -334,17 +334,35 @@ elements to carry over where they fit ST16:
   elapsed/IPS-style counters, and a run/break key hint (F5 run, F6 break
   style)
 
-- [ ] `src/ST16.Gui` (WPF, net10.0) skeleton over the `ST16.VM` debug API (VM stays UI-free)
-- [ ] Load pipeline: `.st16` (assemble on load), `.c` + `.st16d`, `.bin` + `.st16d`
-- [ ] Combined source + disassembly pane: PC-highlighted current line in **both** views; gutter breakpoints (line or address); symbol navigation (label/function → definition); cross-references (call sites); live value annotation on the current instruction (resolved operand + stack effect)
-- [ ] Operand stack view: visual 32-slot stack (top at top), slot numbers, hex + decimal, change highlighting vs. previous step
-- [ ] Call stack view: frames with return address + resolved function name, click-to-jump
-- [ ] Memory view: word-addressable hex grid, hex/decimal toggle, editable values, watchpoints
-- [ ] Console pane: captured output, input injection for `0xF001`
-- [ ] Run control toolbar: Run, Pause, Step Into, Step Over, Step Out, Continue, Reset, Undo (snapshot/restore), instruction-limit setting
-- [ ] Fault display: code, PC, offending instruction, post-mortem stack state
-- [ ] Status bar: PC, instruction counter, machine state
-- [ ] Integration tests driving the VM + GUI logic layer (not pixels): load each phase-4 sample, breakpoint at a known line, step to it, assert stack/memory state, continue to completion
+- [x] `src/ST16.Gui` (WPF, net10.0) skeleton over the `ST16.VM` debug API (VM stays UI-free)
+- [x] Load pipeline: `.st16` (assemble on load), `.c` + `.st16d`, `.bin` + `.st16d`
+- [x] Combined source + disassembly pane: PC-highlighted current line in **both** views; gutter breakpoints (line or address); symbol navigation (label/function → definition); cross-references (call sites); live value annotation on the current instruction (resolved operand + stack effect)
+- [x] Operand stack view: visual 32-slot stack (top at top), slot numbers, hex + decimal, change highlighting vs. previous step
+- [x] Call stack view: frames with return address + resolved function name, click-to-jump
+- [x] Memory view: word-addressable hex grid, hex/decimal toggle, editable values, watchpoints
+- [x] Console pane: captured output, input injection for `0xF001`
+- [x] Run control toolbar: Run, Pause, Step Into, Step Over, Step Out, Continue, Reset, Undo (snapshot/restore), instruction-limit setting
+- [x] Fault display: code, PC, offending instruction, post-mortem stack state
+- [x] Status bar: PC, instruction counter, machine state
+- [x] Integration tests driving the VM + GUI logic layer (not pixels): load each phase-4 sample, breakpoint at a known line, step to it, assert stack/memory state, continue to completion
+
+**Notes (P5):** the window is a thin view over `DebugSession`
+(`src/ST16.Gui/DebugSession.cs`), the WPF-free logic layer that owns the
+machine; `tests/ST16.Gui.Tests` drives that layer (12 tests: load + step +
+breakpoint + inspect + continue for assembly and C samples, undo, memory
+edit, instruction limit, jump-to, breakpoint/line mapping, fault display).
+Design decisions: *Pause* is a hint (the engine is a pure synchronous
+function of program + input — there is nothing to interrupt; the
+instruction-limit watchdog is the practical equivalent); *Continue* = Run;
+frames in pure-assembly programs resolve to the nearest **label** (design:
+"frame, label, line") because `.st16d` functions are CALL targets and
+top-level `.st16` code is not one; symbol navigation and click-to-jump are
+implemented as snapshot/restore with a rewritten PC (`DebugSession.JumpTo`);
+cross-references render as hover tooltips on disassembly rows ("called from
+0x…"); the live annotation (resolved operand + stack depth) renders in the
+status bar. One additive VM accessor landed with this phase:
+`ST16Machine.OperandCount` (occupied-slot count for the stack view and
+annotation).
 
 ---
 
@@ -372,6 +390,17 @@ devices, byte addressing, multi-cycle timing model.
 
 Most recent entries first. Entries are appended at significant
 accomplishments (a completed checklist task or a decision worth remembering).
+
+---
+
+### 2026-10-31 04:32:00 -07:00 — P5: WPF debug GUI — window, logic layer, 12 integration tests
+
+- **Status:** Phase 5 is done and all P5 checkboxes are ticked; plan table row 5 → ✅. `st16gui` (src/ST16.Gui, WPF net10.0-windows) renders the owner's debugger layout: toolbar (Load / Run / Pause / Step In-Over-Out / Reset / Undo / instruction limit), source + disassembly panes with PC highlighting and gutter breakpoints, right-hand tabs (32-slot operand stack with change marks, call stack with click-to-jump, word-addressable memory grid with hex/dec toggle + edit + watchpoint, console with input injection), registers-style status row (pc, ic, state, line, fault, live instruction annotation). Every phase-4 sample is debuggable start-to-finish through the logic layer, including C programs with `.c`-source highlighting (DoD).
+- **Changes:** `src/ST16.Gui/` (new, WPF WinExe `st16gui`): `DebugSession.cs` — the WPF-free logic layer that owns the `ST16Machine` (load pipeline: `.st16` assembles on load, `.c`/`.bin` read the sibling `.st16d`; run control with undo history (256 machine snapshots, cap-enforced); breakpoints by address or source line; watchpoints; memory read/write; console I/O (injectable input queue, captured output); state readout; view resolution — disassembly (via `St16Disassembler`), address↔line mapping, symbol lookup (nearest symbol at or below, by-name), call-stack frame → function/line, cross-reference queries, live instruction annotation (operand resolved to a symbol + stack depth), `JumpTo` (snapshot/restore with rewritten PC, powers double-click and call-stack jumps)). `MainWindow.xaml(.cs)` — thin view: item templates with gutter ● breakpoint buttons, current-line/fault highlighting, cross-reference tooltips, change-highlighted stack slots; F5/F10/F11/Ctrl+Z keys. `src/ST16.VM/ST16Machine.cs`: one additive accessor `OperandCount` (occupied operand-stack slots) — needed by the stack view and annotation; no behavior change. `tests/ST16.Gui.Tests/` (new, xunit, 12 tests): load + step + breakpoint + inspect + continue for 02-sq (StepInto/StepOver a CALL), 01-hello (breakpoint at a label, line mapping, memory edit + undo), 04-fib (function-entry breakpoint, call-stack frame resolution, JumpTo), 03-starloop (instruction-limit stop), 06-calc (input injection `7*8=` → `56`), and C samples compiled in-test via `CCCompiler` into temp siblings (08-gcd breakpoint at `gcd`, 09-stringrev embedded `.c` source + output), breakpoint/line mapping + watchpoint toggle, and a hand-built fault program (StackUf: code, PC, offending instruction, post-mortem stack). `ST16.slnx`: ST16.Gui under `/src/`, ST16.Gui.Tests under `/tests/`; `.gitignore`: sample artifacts + `.tmp-smoke/`.
+- **Design decisions (P5):** *Pause* surfaces a hint instead of interrupting — the engine is a pure synchronous function of program + input (no clock, no thread), so the practical equivalents are Run-to-next-stop and the instruction-limit watchdog; *Continue* = Run. Call-stack frames in pure-assembly programs resolve to the nearest **label** rather than a function name, because `.st16d` `functions[]` are CALL targets and top-level `.st16` code is not one (the design reference asks for "frame, label, line"; C programs resolve the top frame to `main` via the entry stub's `CALL main`). Cross-references render as hover tooltips on disassembly rows ("called from 0x…") on top of the disassembler's `CallReferences`/`BranchReferences`.
+- **Bugs found and fixed this phase:** (1) startup `NullReferenceException`: `IsChecked="True"` on the memory hex/dec checkbox fired its `Checked` handler during XAML parsing, before the memory list existed — guarded with `IsInitialized` checks; (2) the first draft's GUI tests assumed `main` appears in `functions[]` for pure `.st16` programs (it does not — see above) and assumed breakpoints don't re-fire (they do — resume skips the stop PC only on the first fetch), so the fib test now clears its breakpoint before the final run.
+- **Environment note:** launching the GUI from this host's sandboxed shell requires `TEMP`/`TMP` redirected to a writable directory (WPF caches cursor images under `%TEMP%\WPF`, and child processes here cannot write to the user TEMP); launching from an ordinary Explorer/cmd works without it.
+- **Tests:** `ST16.Gui.Tests` 12/12; full regression `ST16.VM.Tests` 136/136, `ST16.Assembler.Tests` 141/141, `ST16.CC.Tests` 60/60, `ST16.Samples.Tests` 12/12 — 361 tests, all green.
 
 ---
 

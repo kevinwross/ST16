@@ -8,3 +8,4 @@ artifacts/
 samples/*/*.bin
 samples/*/*.st16d
 samples/*/*.s
+.tmp-smoke/

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ST16.Gui\ST16.Gui.csproj" />
+    <ProjectReference Include="..\..\src\ST16.VM\ST16.VM.csproj" />
+    <ProjectReference Include="..\..\src\ST16.Assembler\ST16.Assembler.csproj" />
+    <ProjectReference Include="..\..\src\ST16.CC\ST16.CC.csproj" />
+  </ItemGroup>
+
+</Project>

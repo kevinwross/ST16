@@ -284,6 +284,9 @@ public sealed class ST16Machine
         }
     }
 
+    /// <summary>Number of occupied operand-stack slots.</summary>
+    public int OperandCount => _operandStack.Count;
+
     /// <summary>Call-stack frames, most recent (top) first; empty at the top level.</summary>
     public IReadOnlyList<ushort> CallStack => _callStack.TopDownCopy();
 

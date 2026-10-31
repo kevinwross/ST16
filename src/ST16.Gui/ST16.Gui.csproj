@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>ST16.Gui</RootNamespace>
+    <AssemblyName>st16gui</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ST16.VM\ST16.VM.csproj" />
+    <ProjectReference Include="..\ST16.Assembler\ST16.Assembler.csproj" />
+    <ProjectReference Include="..\ST16.Disassembler\ST16.Disassembler.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,220 @@
+<Window x:Class="ST16.Gui.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ST16 debugger" Height="720" Width="1280"
+        WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <!-- row highlight: current instruction -->
+        <Style x:Key="CurrentRow" TargetType="ListBoxItem">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                    <Setter Property="Background" Value="#FFF2CC" />
+                    <Setter Property="FontWeight" Value="Bold" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsFault}" Value="True">
+                    <Setter Property="Background" Value="#FFC7CE" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+    <DockPanel>
+        <!-- ===== toolbar ===== -->
+        <ToolBarTray DockPanel.Dock="Top">
+            <ToolBar>
+                <Button x:Name="LoadButton" Content="Load…" Click="OnLoad" Width="60" />
+                <Separator />
+                <Button x:Name="RunButton" Content="Run (F5)" Click="OnRun" Width="70" />
+                <Button x:Name="PauseButton" Content="Pause" Click="OnPause" Width="56" />
+                <Button x:Name="StepInButton" Content="Step In (F11)" Click="OnStepIn" Width="86" />
+                <Button x:Name="StepOverButton" Content="Step Over (F10)" Click="OnStepOver" Width="96" />
+                <Button x:Name="StepOutButton" Content="Step Out" Click="OnStepOut" Width="70" />
+                <Button x:Name="ResetButton" Content="Reset" Click="OnReset" Width="56" />
+                <Button x:Name="UndoButton" Content="Undo (Ctrl+Z)" Click="OnUndo" Width="80" />
+                <Separator />
+                <TextBlock Text="limit" VerticalAlignment="Center" />
+                <TextBox x:Name="LimitBox" Width="70" Text="0"
+                         KeyDown="OnLimitKeyDown" ToolTip="Instruction-limit watchdog; 0 = unlimited" />
+            </ToolBar>
+        </ToolBarTray>
+
+        <!-- ===== status bar ===== -->
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusPc" Text="pc=—" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem>
+                <TextBlock x:Name="StatusIc" Text="ic=0" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem>
+                <TextBlock x:Name="StatusState" Text="state=Paused" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem>
+                <TextBlock x:Name="StatusLine" Text="" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem>
+                <TextBlock x:Name="StatusFault" Text="" Foreground="#B00020" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem>
+                <TextBlock x:Name="StatusAnnotation" Text="" Foreground="DarkSlateGray"
+                           FontFamily="Consolas" />
+            </StatusBarItem>
+            <StatusBarItem>
+                <TextBlock Text="  F5 run · F10/11 step · gutter ● = breakpoint" Foreground="Gray" />
+            </StatusBarItem>
+        </StatusBar>
+
+        <!-- ===== main area ===== -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*" MinWidth="260" />
+                <ColumnDefinition Width="4*" MinWidth="320" />
+                <ColumnDefinition Width="3*" MinWidth="260" />
+            </Grid.ColumnDefinitions>
+
+            <!-- source pane -->
+            <GroupBox Grid.Column="0" Header="Source (line breakpoints in the gutter; double-click a label to jump)">
+                <TabControl x:Name="SourceTabs">
+                    <TabItem Header="—">
+                        <ListBox x:Name="SourceList" ItemContainerStyle="{StaticResource CurrentRow}"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                 VirtualizingStackPanel.IsVirtualizing="False">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="22" />
+                                            <ColumnDefinition Width="48" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Button Grid.Column="0" Content="●" FontSize="9" Padding="0"
+                                                ToolTip="Toggle breakpoint on this line"
+                                                Click="OnSourceGutterClick" Tag="{Binding}"
+                                                Foreground="{Binding GutterColor}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding LineNo}" Margin="2,0"
+                                                   Foreground="Gray" />
+                                        <TextBlock Grid.Column="2" Text="{Binding Text}" Margin="2,0"
+                                                   FontFamily="Consolas" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </TabItem>
+                </TabControl>
+            </GroupBox>
+
+            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Left"
+                          Background="LightGray" />
+
+            <!-- disassembly pane -->
+            <GroupBox Grid.Column="1" Header="Disassembly (instruction steps; gutter ● = breakpoint; double-click to jump)">
+                <ListBox x:Name="DisasmList" ItemContainerStyle="{StaticResource CurrentRow}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                         VirtualizingStackPanel.IsVirtualizing="False"
+                         MouseDoubleClick="OnDisasmDoubleClick">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="22" />
+                                    <ColumnDefinition Width="58" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="130" />
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0" Content="●" FontSize="9" Padding="0"
+                                        ToolTip="Toggle breakpoint at this address"
+                                        Click="OnDisasmGutterClick" Tag="{Binding}"
+                                        Foreground="{Binding GutterColor}" />
+                                <TextBlock Grid.Column="1" Text="{Binding AddressText}" Margin="2,0"
+                                           Foreground="Gray" FontFamily="Consolas" />
+                                <TextBlock Grid.Column="2" Text="{Binding Text}" Margin="2,0"
+                                           FontFamily="Consolas" ToolTip="{Binding Refs}" />
+                                <TextBlock Grid.Column="3" Text="{Binding Comment}" Margin="2,0"
+                                           Foreground="DarkSlateGray" FontFamily="Consolas"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Refs}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </GroupBox>
+
+            <GridSplitter Grid.Column="2" Width="4" HorizontalAlignment="Left"
+                          Background="LightGray" />
+
+            <!-- right panes -->
+            <TabControl Grid.Column="2">
+                <TabItem Header="Stack">
+                    <ListView x:Name="StackList" VirtualizingStackPanel.IsVirtualizing="False">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="slot" Width="36" DisplayMemberBinding="{Binding Slot}" />
+                                <GridViewColumn Header="hex" Width="80" DisplayMemberBinding="{Binding Hex}" />
+                                <GridViewColumn Header="dec" Width="80" DisplayMemberBinding="{Binding Dec}" />
+                                <GridViewColumn Header="Δ" Width="24" DisplayMemberBinding="{Binding Changed}" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </TabItem>
+                <TabItem Header="Calls">
+                    <ListView x:Name="CallList" VirtualizingStackPanel.IsVirtualizing="False"
+                              MouseDoubleClick="OnCallDoubleClick">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="frame" Width="48" DisplayMemberBinding="{Binding Frame}" />
+                                <GridViewColumn Header="return" Width="80" DisplayMemberBinding="{Binding ReturnText}" />
+                                <GridViewColumn Header="function" Width="110" DisplayMemberBinding="{Binding Function}" />
+                                <GridViewColumn Header="line" Width="48" DisplayMemberBinding="{Binding Line}" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </TabItem>
+                <TabItem Header="Memory">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4">
+                            <TextBlock Text="start" VerticalAlignment="Center" />
+                            <TextBox x:Name="MemStartBox" Width="70" Text="0x0000" VerticalAlignment="Center" />
+                            <Button Content="Go" Click="OnMemGo" Margin="4,0" />
+                            <CheckBox x:Name="MemHexBox" Content="hex" IsChecked="True" Margin="8,0,0,0"
+                                      VerticalAlignment="Center" Checked="OnMemBaseChanged" Unchecked="OnMemBaseChanged" />
+                        </StackPanel>
+                        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="4">
+                            <TextBlock Text="set @" VerticalAlignment="Center" />
+                            <TextBox x:Name="MemAddrBox" Width="70" Text="0x0000" VerticalAlignment="Center" />
+                            <TextBox x:Name="MemValueBox" Width="70" Text="0x0000" Margin="4,0" VerticalAlignment="Center" />
+                            <Button Content="Apply" Click="OnMemApply" Margin="4,0" />
+                            <CheckBox x:Name="MemWatchBox" Content="watch" Margin="8,0,0,0"
+                                      VerticalAlignment="Center" Checked="OnMemWatchChanged" Unchecked="OnMemWatchChanged" />
+                        </StackPanel>
+                        <ListView x:Name="MemList" VirtualizingStackPanel.IsVirtualizing="False">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="addr" Width="60" DisplayMemberBinding="{Binding AddressText}" />
+                                    <GridViewColumn Header="words (little-endian pairs)" Width="430" DisplayMemberBinding="{Binding WordsText}" />
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                    </DockPanel>
+                </TabItem>
+                <TabItem Header="Console">
+                    <DockPanel Margin="4">
+                        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBox x:Name="ConsoleInputBox" Width="280" VerticalAlignment="Center"
+                                     ToolTip="Bytes sent to port 0xF001 when the program reads input"
+                                     KeyDown="OnConsoleInputKeyDown" />
+                            <Button Content="Send input" Click="OnSendInput" Margin="4,0,0,0" />
+                            <Button Content="Clear" Click="OnClearConsole" Margin="4,0,0,0" />
+                        </StackPanel>
+                        <TextBox x:Name="ConsoleOutputBox" IsReadOnly="True"
+                                 FontFamily="Consolas" TextWrapping="NoWrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto" />
+                    </DockPanel>
+                </TabItem>
+            </TabControl>
+        </Grid>
+    </DockPanel>
+</Window>
