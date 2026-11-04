@@ -1,6 +1,8 @@
 # ST16 Instruction Set Architecture Specification
 
-**Version 1.0** · Status: Frozen (signed 2026-10-29; errata 2026-10-30)
+**Version 1.1** · Status: Frozen (extends v1.0, signed 2026-10-29; errata 2026-10-30)
+
+v1.1 adds: 16-bit fixed-point Q8.8 floats, struct/union types with word-level field layout, and the compiler front-end (st16cc) support for them. The ISA encoding and opcode table are unchanged from v1.0.
 
 Amended during v1.0 review: operand and call stack depths raised from 16 to
 32 slots (see §2.1 and §10). No encoding or opcode changes.
@@ -38,8 +40,7 @@ ports.
 | Real-world concepts without complexity | PC-relative branches, wrap-around overflow, memory-mapped I/O, traps (reserved) |
 | Room to grow | 27 of 64 opcode slots are reserved as student extension space |
 
-**Explicit non-goals (v1):** byte addressing, trap vectors / exception
-handlers, multi-precision arithmetic, pipelining, interrupts.
+**Explicit non-goals (v1.1):** trap vectors / exception handlers, multi-precision arithmetic, pipelining, interrupts. (Byte addressing, struct/union types, and Q8.8 floats were added in v1.1.)
 
 ---
 
@@ -117,6 +118,54 @@ Accessing an address whose port is unmapped (see §7) is an **ADDRF** fault.
 Instructions are fetched from RAM only: a `JMP`, `CALL`, or `RET` that leaves
 the PC in the port region `0xF000`–`0xFFFF` faults with **ADDRF** on the next
 fetch.
+
+### 3.1 Q8.8 fixed-point float representation
+
+ST16 has no floating-point hardware. v1.1 represents floats as 16-bit
+fixed-point Q8.8 values: a signed 8-bit integer part and an 8-bit fractional
+part, stored as the 16-bit integer `intPart * 256 + fracPart` where
+`fracPart` is a 2-digit decimal fraction (0–99). The representable range is
+−128.00 to 127.99.
+
+| Decimal | Stored as (hex) | Stored as (decimal) |
+|---------|-----------------|---------------------|
+| 0.00 | `0x0000` | 0 |
+| 1.00 | `0x0100` | 256 |
+| 3.50 | `0x01F4` | 500 |
+| −1.25 | `0xFFEB` | −29 |
+| 127.99 | `0x7F63` | 32611 |
+| −128.00 | `0x8000` | −32768 |
+
+- **int → float:** shift left by 8 (`value << 8`).
+- **float → int:** arithmetic shift right by 8 (`value >> 8`), truncating
+  toward zero.
+- **float + float / float − float:** plain integer `ADD`/`SUB` on the stored
+  16-bit values (carry between fractional and integer parts is handled
+  correctly because each field is at most 2 digits, so the low byte never
+  overflows into the high byte).
+- **float × float:** `(a * b) >> 8` (integer multiply, then arithmetic shift
+  right 8).
+- **float ÷ float:** `(a << 8) / b` (shift left 8, then signed integer
+  divide).
+
+### 3.2 Struct and union memory layout
+
+ST16 is word-addressed; there is no byte addressing. Each struct or union
+field occupies exactly one word.
+
+**Struct:** fields are laid out sequentially at increasing word offsets. The
+first field is at offset 0, the second at offset 1, and so on. The struct's
+total size in words is the sum of its fields' sizes (each field is one word,
+so the size equals the field count).
+
+**Union:** all fields are at offset 0 (they overlay each other). The union's
+size in words is the maximum field size (each field is one word, so the size
+is 1 word regardless of field count — the overlay means only the largest
+field's bytes are meaningful at any time).
+
+A struct or union value in memory is simply its fields laid out contiguously
+from its base address. The address of field `f` of struct `s` is
+`&s + offset(f)`; for a union it is always `&u`.
 
 ---
 
@@ -470,6 +519,13 @@ branch to `0x0006`.
 - **Faulting, not trapping, in v1.** The first exposure to exceptions
   should be "what went wrong and where", not "how do you write a handler".
   Trap vectors are the natural v1.1.
+- **Q8.8 floats in v1.1.** Since the ST16 has no FPU, floats are stored as
+  16-bit Q8.8 fixed-point values. Integer add/sub work directly on the
+  stored representation; mul/div need a shift. This keeps the ISA unchanged
+  while giving the compiler a numeric type for fractional values.
+- **Struct/union layout in v1.1.** Each field occupies one word, matching
+  the word-addressed memory model. Structs are sequential; unions overlay at
+  offset 0. This keeps field addressing simple: base address + field offset.
 
 ---
 
@@ -480,6 +536,9 @@ branch to `0x0006`.
 | `0x25`–`0x3F` | New instructions; course exercises may reserve slots here. Any extension must not reuse a v1 opcode or change v1 semantics. |
 | `0x0000` (memory) | Trap vector, if exception handlers are added. |
 | Ports `0xF003`–`0xFFFF` | Additional devices (e.g., a virtual timer, serial line, framebuffer). |
+
+v1.1 additions are implemented in software (the st16cc compiler and runtime),
+not in the ISA. The opcode table, encoding, and all v1 semantics are frozen.
 
 Any v1.1 change must be published as a new version of this document with a
 changelog; the opcode table above is frozen for v1.

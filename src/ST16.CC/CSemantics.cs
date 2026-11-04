@@ -1,3 +1,5 @@
+using System.Linq;
+
 namespace ST16.CC;
 
 public enum CSymKind
@@ -248,7 +250,16 @@ public sealed class CSemantics
                     }
                     _funcScope[v.Name] = new CSymbol { Name = v.Name, Type = v.Type, Line = d.Line, Kind = CSymKind.Local, Slot = _nextSlot };
                     _locals.Add(_funcScope[v.Name]);
-                    _nextSlot++;
+                    // Structs and unions occupy one word per field; arrays
+                    // occupy one word per element. All other scalars take one
+                    // slot.
+                    int slots = v.Type.Kind switch
+                    {
+                        CTypeKind.Array => v.Type.ArrayLen,
+                        CTypeKind.Struct or CTypeKind.Union => v.Type.ByteSize,
+                        _ => 1,
+                    };
+                    _nextSlot += slots;
                 }
                 break;
 
@@ -283,7 +294,13 @@ public sealed class CSemantics
                             throw new CCException(new CCDiagnostic(fo.Line, 1, $"local '{v.Name}' redeclares a name already in scope"));
                         _funcScope[v.Name] = new CSymbol { Name = v.Name, Type = v.Type, Line = fo.Line, Kind = CSymKind.Local, Slot = _nextSlot };
                         _locals.Add(_funcScope[v.Name]);
-                        _nextSlot++;
+                        int slots = v.Type.Kind switch
+                        {
+                            CTypeKind.Array => v.Type.ArrayLen,
+                            CTypeKind.Struct or CTypeKind.Union => v.Type.ByteSize,
+                            _ => 1,
+                        };
+                        _nextSlot += slots;
                     }
                 }
                 else if (fo.Init is CExprStmt es)
@@ -374,6 +391,25 @@ public sealed class CSemantics
             case CPostfix p:
                 CheckLvalue(p.Operand);
                 break;
+            case CFieldAccess fa:
+                CheckLvalue(fa.Base);
+                // The base of a field access must be a struct/union (or a
+                // pointer to one), and the named field must exist.
+                var baseType = LvalueType(fa.Base);
+                if (baseType is null)
+                    throw new CCException(new CCDiagnostic(fa.Line, 1,
+                        $"cannot determine the type of the base of '{fa.FieldName}' access"));
+                bool isPtr = baseType.Kind == CTypeKind.Pointer;
+                CType? structType = isPtr ? baseType.Element! : baseType;
+                if (structType is null || (structType.Kind != CTypeKind.Struct && structType.Kind != CTypeKind.Union))
+                    throw new CCException(new CCDiagnostic(fa.Line, 1,
+                        $"'{FormatType(baseType)}' is not a struct or union — cannot access field '{fa.FieldName}'"));
+                var def = structType.Kind == CTypeKind.Struct ? (object)structType.StructDef! : structType.UnionDef!;
+                var fields = def is CStructTypeDef sd ? sd.Fields : ((CUnionTypeDef)def).Fields;
+                if (!fields.Any(f => f.Name == fa.FieldName))
+                    throw new CCException(new CCDiagnostic(fa.Line, 1,
+                        $"struct/union '{structType}' has no field '{fa.FieldName}'"));
+                break;
             case CIndex ix:
                 CheckLvalue(ix.Base);
                 CheckLvalue(ix.Index);
@@ -428,6 +464,14 @@ public sealed class CSemantics
                     CheckLvalue(so.Expr);
                 else if (so.Type is not null && so.Type.Kind == CTypeKind.Void)
                     throw new CCException(new CCDiagnostic(so.Line, 1, "'sizeof(void)' is not allowed"));
+                break;
+            case CCast c:
+                CheckLvalue(c.Expr);
+                // Allow scalar↔scalar casts (int↔float, int↔pointer, etc.).
+                // Struct/union casts are not allowed.
+                if (c.TargetType.Kind is CTypeKind.Struct or CTypeKind.Union)
+                    throw new CCException(new CCDiagnostic(c.Line, 1,
+                        $"cannot cast to struct/union type '{FormatType(c.TargetType)}'"));
                 break;
             case CTernary t:
                 CheckLvalue(t.Cond);
@@ -515,6 +559,15 @@ public sealed class CSemantics
                     : null;
             case CUnary u when u.Op == UOp.Deref:
                 return LvalueType(u.Operand) is { } pt && pt.Kind == CTypeKind.Pointer ? pt.Element! : null;
+            case CFieldAccess fa:
+                var faBase = LvalueType(fa.Base);
+                if (faBase is null) return null;
+                CType faStruct = faBase.Kind == CTypeKind.Pointer ? faBase.Element! : faBase;
+                var faDef = faStruct.Kind == CTypeKind.Struct ? (object)faStruct.StructDef! : faStruct.UnionDef!;
+                var faFields = faDef is CStructTypeDef faSd ? faSd.Fields : ((CUnionTypeDef)faDef).Fields;
+                return faFields.FirstOrDefault(f => f.Name == fa.FieldName)?.Type;
+            case CCast c:
+                return c.TargetType;
             default:
                 return null;
         }
@@ -540,6 +593,8 @@ public sealed class CSemantics
         CTypeKind.Scalar => (t.Unsigned ? "unsigned " : "") + t.Base.ToString().ToLowerInvariant(),
         CTypeKind.Pointer => t.Element is not null ? $"{FormatType(t.Element)} *" : "pointer",
         CTypeKind.Array => $"array of {FormatType(t.Element!)}",
+        CTypeKind.Struct => $"struct {t.StructDef!.Name}",
+        CTypeKind.Union => $"union {t.UnionDef!.Name}",
         _ => "void",
     };
 }

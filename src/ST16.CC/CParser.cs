@@ -3,10 +3,11 @@ namespace ST16.CC;
 /// <summary>
 /// Recursive-descent parser for the ST16 C core subset (plan P4):
 /// declarations (local/global scalars + fixed-size arrays, const, initializers),
-/// function definitions, full expression precedence, and all core-subset
-/// statements (if/else, while, do-while, for, break, continue, return,
-/// goto with local labels). Unsupported constructs (structs, floats,
-/// variadics, …) are rejected with line-referenced diagnostics.
+/// function definitions, full precedence expressions, struct/union type
+/// definitions, float literals, member access ('.' / '->'), and casts.
+/// All core-subset statements (if/else, while, do-while, for, break, continue,
+/// return, goto with local labels). Unsupported constructs (variadics, …) are
+/// rejected with line-referenced diagnostics.
 /// </summary>
 public sealed class CParser
 {
@@ -14,9 +15,6 @@ public sealed class CParser
     {
         ["long"] = "long",
         ["double"] = "double",
-        ["float"] = "float",
-        ["struct"] = "structs",
-        ["union"] = "unions",
         ["switch"] = "switch statements",
         ["case"] = "case labels",
         ["default"] = "default labels",
@@ -30,6 +28,7 @@ public sealed class CParser
 
     private readonly List<CToken> _t;
     private int _i;
+    private CProgram? _program;
 
     public CParser(List<CToken> tokens)
     {
@@ -65,7 +64,8 @@ public sealed class CParser
     private static bool IsTypeKeyword(CToken t)
         => CKeyword.Is(t, "int") || CKeyword.Is(t, "short") || CKeyword.Is(t, "char")
            || CKeyword.Is(t, "void") || CKeyword.Is(t, "unsigned") || CKeyword.Is(t, "signed")
-           || CKeyword.Is(t, "const");
+           || CKeyword.Is(t, "const") || CKeyword.Is(t, "float")
+           || CKeyword.Is(t, "struct") || CKeyword.Is(t, "union");
 
     // -----------------------------------------------------------------------
     // Top level
@@ -73,49 +73,127 @@ public sealed class CParser
 
     public CProgram ParseProgram()
     {
-        var program = new CProgram();
+        _program = new CProgram();
+        var program = _program;
         while (!AtEnd)
         {
             RejectUnsupportedKeyword();
             int headerLine = Tok.Line; // line where the declaration starts
-            var baseType = ParseTypeSpecifier();
-            var (name, type, paramsInfo) = ParseDeclarator(baseType);
-            if (paramsInfo is not null)
-            {
-                if (Tok.Type == CTokenType.Semi)
-                {
-                    // Forward declaration (prototype): 'int f(int, int);'
-                    Advance();
-                    bool hasDef = program.Functions.Any(x => x.Name == name && !x.IsPrototype);
-                    bool hasAny = program.Functions.Any(x => x.Name == name);
-                    if (!hasDef && !hasAny)
-                        program.Functions.Add(new CFuncDef(name, type, paramsInfo,
-                            new CBlock { Line = headerLine }, headerLine) { IsPrototype = true });
-                    continue;
-                }
-                var body = ParseBlock(); // expects the '{' itself
-                program.Functions.Add(new CFuncDef(name, type, paramsInfo, body, headerLine));
-            }
+
+            // Struct / union type definition at file scope:
+            //   struct Tag { int x; int y; };
+            //   union  Tag { int a; char b; };
+            //   struct Tag;              // forward declaration (opaque)
+            if (CKeyword.Is(Tok, "struct") || CKeyword.Is(Tok, "union"))
+                ParseStructDef(program);
             else
             {
-                var declLine = Tok.Line;
-                var decls = new List<(string Name, CType Type, CExpr? Init)>();
-                var init = ParseOptionalInitializer();
-                decls.Add((name, FixInferredArrayLength(type, init, declLine), init));
-                while (TryAccept(CTokenType.Comma))
+                var baseType = ParseTypeSpecifier();
+                var (name, type, paramsInfo) = ParseDeclarator(baseType);
+                if (paramsInfo is not null)
                 {
-                    var (n2, t2, p2) = ParseDeclarator(baseType);
-                    if (p2 is not null)
-                        throw new CCException(Fail(Tok, "global declarations cannot have parameter lists"));
-                    var init2 = ParseOptionalInitializer();
-                    decls.Add((n2, FixInferredArrayLength(t2, init2, declLine), init2));
+                    if (Tok.Type == CTokenType.Semi)
+                    {
+                        // Forward declaration (prototype): 'int f(int, int);'
+                        Advance();
+                        bool hasDef = program.Functions.Any(x => x.Name == name && !x.IsPrototype);
+                        bool hasAny = program.Functions.Any(x => x.Name == name);
+                        if (!hasDef && !hasAny)
+                            program.Functions.Add(new CFuncDef(name, type, paramsInfo,
+                                new CBlock { Line = headerLine }, headerLine) { IsPrototype = true });
+                        continue;
+                    }
+                    var body = ParseBlock(); // expects the '{' itself
+                    program.Functions.Add(new CFuncDef(name, type, paramsInfo, body, headerLine));
                 }
-                Expect(CTokenType.Semi, "';'", Tok);
-                foreach (var (n, t, i) in decls)
-                    program.Globals.Add(new CGlobalVar(t, n, i, declLine));
+                else
+                {
+                    var declLine = Tok.Line;
+                    var decls = new List<(string Name, CType Type, CExpr? Init)>();
+                    var init = ParseOptionalInitializer();
+                    decls.Add((name, FixInferredArrayLength(type, init, declLine), init));
+                    while (TryAccept(CTokenType.Comma))
+                    {
+                        var (n2, t2, p2) = ParseDeclarator(baseType);
+                        if (p2 is not null)
+                            throw new CCException(Fail(Tok, "global declarations cannot have parameter lists"));
+                        var init2 = ParseOptionalInitializer();
+                        decls.Add((n2, FixInferredArrayLength(t2, init2, declLine), init2));
+                    }
+                    Expect(CTokenType.Semi, "';'", Tok);
+                    foreach (var (n, t, i) in decls)
+                        program.Globals.Add(new CGlobalVar(t, n, i, declLine));
+                }
             }
         }
         return program;
+    }
+
+    /// <summary>
+    /// Parses a struct or union type definition at file scope:
+    ///   struct Tag { int x; int y; };
+    ///   union  Tag { int a; char b; };
+    ///   struct Tag;              // forward declaration (opaque)
+    /// Each field declaration is parsed as a type specifier + declarator.
+    /// </summary>
+    private void ParseStructDef(CProgram program)
+    {
+        bool isUnion = CKeyword.Is(Tok, "union");
+        Advance(); // consume 'struct' / 'union'
+
+        if (Tok.Type != CTokenType.Ident)
+            throw new CCException(Fail(Tok, $"expected a tag name after '{(isUnion ? "union" : "struct")}'"));
+        string tag = Tok.Text;
+        Advance();
+
+        if (TryAccept(CTokenType.Semi))
+        {
+            // Forward declaration: 'struct Tag;' — opaque, no layout yet.
+            program.StructDefs.Add(new CStructDefStmt(tag,
+                isUnion ? CTypeKind.Union : CTypeKind.Struct, new(), Tok.Line));
+            return;
+        }
+
+        Expect(CTokenType.LBrace, "'{' after the struct/union tag", Tok);
+        var fields = new List<CStructField>();
+        int offset = 0;
+
+        while (Tok.Type != CTokenType.RBrace)
+        {
+            if (AtEnd)
+                throw new CCException(Fail(Tok, "unterminated struct/union definition"));
+
+            // Parse a field: type specifier + declarator (just the name).
+            var baseType = ParseTypeSpecifier();
+            var (name, fieldType, plist) = ParseDeclarator(baseType);
+            if (plist is not null)
+                throw new CCException(Fail(Tok, "struct/union fields cannot be functions"));
+
+            int fieldSize = fieldType.ByteSize;
+            if (fieldSize == 0)
+                throw new CCException(Fail(Tok, $"field '{name}' has unsupported type '{fieldType}'"));
+
+            fields.Add(new CStructField(name, fieldType, offset));
+
+            if (isUnion)
+            {
+                // Union: all fields at offset 0; size = max field size.
+                offset = Math.Max(offset, fieldSize);
+            }
+            else
+            {
+                // Struct: fields laid out sequentially at word offsets.
+                offset += fieldSize;
+            }
+
+            Expect(CTokenType.Semi, "';' after the field declaration", Tok);
+        }
+
+        Expect(CTokenType.RBrace, "'}' to end the struct/union definition", Tok);
+        Expect(CTokenType.Semi, "';' after the struct/union definition", Tok);
+
+        program.StructDefs.Add(new CStructDefStmt(tag,
+            isUnion ? CTypeKind.Union : CTypeKind.Struct, fields, Tok.Line));
     }
 
     /// <summary>
@@ -238,10 +316,38 @@ public sealed class CParser
                 baseSeen = true;
                 Advance();
             }
+            else if (CKeyword.Is(Tok, "float"))
+            {
+                baseType = CType.Float;
+                baseSeen = true;
+                Advance();
+            }
             else if (CKeyword.Is(Tok, "void"))
             {
                 Advance();
                 return CType.Void;
+            }
+            else if (CKeyword.Is(Tok, "struct") || CKeyword.Is(Tok, "union"))
+            {
+                bool isUnion = CKeyword.Is(Tok, "union");
+                Advance(); // consume 'struct' / 'union'
+                if (Tok.Type != CTokenType.Ident)
+                    throw new CCException(Fail(Tok, $"expected a tag name after '{(isUnion ? "union" : "struct")}'"));
+                string tag = Tok.Text;
+                Advance();
+
+                var def = _program?.StructDefs.FirstOrDefault(d => d.Tag == tag && d.Kind == (isUnion ? CTypeKind.Union : CTypeKind.Struct));
+                if (def == null)
+                    throw new CCException(Fail(Tok, $"unknown {(isUnion ? "union" : "struct")} tag '{tag}'"));
+
+                int byteSize = isUnion
+                    ? def.Fields.Max(f => f.Type.ByteSize)
+                    : def.Fields.Sum(f => f.Type.ByteSize);
+
+                var resolved = isUnion
+                    ? CType.Union(new CUnionTypeDef(tag, def.Fields, byteSize))
+                    : CType.Struct(new CStructTypeDef(tag, def.Fields, byteSize));
+                return isConst ? resolved.AsConst() : resolved;
             }
             else
             {
@@ -475,11 +581,6 @@ public sealed class CParser
         }
 
         // Expression statement.
-        if (Tok.Type == CTokenType.Dot)
-            throw new CCException(Fail(Tok, "struct/union member access ('.') is not supported in the ST16 profile"));
-        if (Tok.Type == CTokenType.Arrow)
-            throw new CCException(Fail(Tok, "struct/union member access ('->') is not supported in the ST16 profile"));
-
         var expr = ParseAssignment();
         int line = Tok.Line; // the semicolon's line (the statement's line)
         Expect(CTokenType.Semi, "';' after the expression", Tok);
@@ -799,10 +900,13 @@ public sealed class CParser
             }
             else if (Tok.Type is CTokenType.Dot or CTokenType.Arrow)
             {
-                // Member access only makes sense with structs — reject with
-                // a profile-specific diagnostic instead of a grammar error.
-                throw new CCException(Fail(Tok,
-                    $"struct/union member access ('{Tok.Text}') is not supported in the ST16 profile"));
+                var at = Advance();
+                bool isArrow = at.Type == CTokenType.Arrow;
+                if (Tok.Type != CTokenType.Ident)
+                    throw new CCException(Fail(Tok, $"expected a field name after '{at.Text}'"));
+                string fieldName = Tok.Text;
+                Advance();
+                expr = new CFieldAccess { Line = at.Line, Base = expr, FieldName = fieldName, IsArrow = isArrow };
             }
             else
             {
@@ -821,6 +925,10 @@ public sealed class CParser
                 Advance();
                 return new CLit { Line = tok.Line, Kind = CLitKind.Int, Value = tok.Value, Unsigned = tok.Unsigned };
 
+            case CTokenType.FloatLit:
+                Advance();
+                return new CLit { Line = tok.Line, Kind = CLitKind.Float, Value = tok.Value };
+
             case CTokenType.CharLit:
                 Advance();
                 return new CLit { Line = tok.Line, Kind = CLitKind.Char, Value = tok.Value };
@@ -837,15 +945,29 @@ public sealed class CParser
 
             case CTokenType.LParen:
                 Advance();
+                // Look ahead: is this a cast '( type ) expr'?
+                bool couldBeCast = IsTypeKeyword(Tok) || CKeyword.Is(Tok, "struct") || CKeyword.Is(Tok, "union");
+                if (couldBeCast)
+                {
+                    int save = _i;
+                    var castType = ParseTypeSpecifier();
+                    if (TryAccept(CTokenType.RParen))
+                    {
+                        var operand = ParseUnary();
+                        return new CCast { Line = tok.Line, TargetType = castType, Expr = operand };
+                    }
+                    // Not a cast after all — rewind and parse as a parenthesized expression.
+                    _i = save;
+                }
                 var inner = ParseAssignment();
                 Expect(CTokenType.RParen, "')'", tok);
                 return inner;
 
             case CTokenType.Dot:
-                throw new CCException(Fail(tok, "struct/union member access ('.') is not supported in the ST16 profile"));
+                throw new CCException(Fail(tok, "unexpected '.' — member access requires a base expression"));
 
             case CTokenType.Arrow:
-                throw new CCException(Fail(tok, "struct/union member access ('->') is not supported in the ST16 profile"));
+                throw new CCException(Fail(tok, "unexpected '->' — member access requires a base expression"));
 
             default:
                 throw new CCException(Fail(tok, $"unexpected '{tok.Text}' in an expression"));

@@ -187,7 +187,13 @@ public partial class CCodegen
         foreach (var g in _program.Globals)
         {
             _globalAddrs[g.Name] = _nextGlobal;
-            _nextGlobal += g.Type.Kind == CTypeKind.Array ? g.Type.ArrayLen : 1;
+            int size = g.Type.Kind switch
+            {
+                CTypeKind.Array => g.Type.ArrayLen,
+                CTypeKind.Struct or CTypeKind.Union => g.Type.ByteSize,
+                _ => 1,
+            };
+            _nextGlobal += size;
         }
 
         // A char array initialized by a string inlines the bytes; a pointer
@@ -330,7 +336,10 @@ public partial class CCodegen
     private void GenerateFunction(CFuncDef f)
     {
         _currentFunc = f.Name;
-        _localCount = _locals[f.Name].Count;
+        // Total slots = sum of each local's size (1 for scalars, ArrayLen for
+        // arrays, ByteSize for structs/unions). This is what the prologue
+        // must reserve; spill slots follow after it.
+        _localCount = TotalSlots(f.Name);
         // Spill slots follow the parameters and locals (slot p+l+k =
         // _localCount + k), so the whole frame (_localCount + spill
         // budget) is what the prologue reserves.
@@ -756,6 +765,16 @@ public partial class CCodegen
             return;
         }
 
+        if (g.Type.Kind is CTypeKind.Struct or CTypeKind.Union)
+        {
+            // Reserve one word per field (initialized to zero unless an
+            // initializer is given — struct initializers are not yet
+            // supported beyond zero-initialization).
+            for (int i = 0; i < g.Type.ByteSize; i++)
+                text.Add(".dw 0");
+            return;
+        }
+
         if (g.Init is CLit lit)
         {
             if (lit.Kind == CLitKind.String)
@@ -767,5 +786,22 @@ public partial class CCodegen
         {
             text.Add(".ds 1");
         }
+    }
+
+    /// <summary>Total frame slots for a function (params + locals, counting
+    /// multi-word structs/arrays by their word size).</summary>
+    private int TotalSlots(string funcName)
+    {
+        int total = 0;
+        foreach (var sym in _locals[funcName])
+        {
+            total += sym.Type.Kind switch
+            {
+                CTypeKind.Array => sym.Type.ArrayLen,
+                CTypeKind.Struct or CTypeKind.Union => sym.Type.ByteSize,
+                _ => 1,
+            };
+        }
+        return total;
     }
 }

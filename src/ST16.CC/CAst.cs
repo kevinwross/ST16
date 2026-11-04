@@ -1,37 +1,55 @@
 namespace ST16.CC;
 
-/// <summary>Scalar base kinds (the ST16 profile: 16-bit int/short, 8-bit-in-a-word char).</summary>
+/// <summary>Scalar base kinds (the ST16 profile: 16-bit int/short, 8-bit-in-a-word char,
+/// and 16-bit fixed-point float in Q8.8 format).</summary>
 public enum CBaseKind
 {
     Void,
     Int,
     Short,
     Char,
+    Float,
 }
 
-/// <summary>Shape of a type: scalar, pointer, or fixed-size array.</summary>
+/// <summary>Shape of a type: scalar, pointer, fixed-size array, struct, or union.</summary>
 public enum CTypeKind
 {
     Void,
     Scalar,
     Pointer,
     Array,
+    Struct,
+    Union,
 }
+
+/// <summary>One field of a struct or union: name, type, and offset in words.</summary>
+public sealed record CStructField(string Name, CType Type, int Offset);
+
+/// <summary>A struct type definition: named fields laid out sequentially, each field
+/// occupying one word in the word-addressed ST16 memory model.</summary>
+public sealed record CStructTypeDef(string Name, List<CStructField> Fields, int ByteSize);
+
+/// <summary>A union type definition: all fields at offset 0, size = max field size
+/// (each field occupies one word).</summary>
+public sealed record CUnionTypeDef(string Name, List<CStructField> Fields, int ByteSize);
 
 /// <summary>
 /// A C type in the ST16 profile. Scalars are <see cref="CBaseKind"/>;
-/// pointers and arrays wrap their element type. <see cref="IsConst"/> is the
-/// top-level const qualifier.
+/// pointers and arrays wrap their element type; structs and unions reference
+/// a type definition. <see cref="IsConst"/> is the top-level const qualifier.
 /// </summary>
 public sealed class CType
 {
-    private CType(CTypeKind kind, CBaseKind baseKind, bool unsigned, int arrayLen, CType? element, bool isConst)
+    private CType(CTypeKind kind, CBaseKind baseKind, bool unsigned, int arrayLen, CType? element,
+        CStructTypeDef? structDef, CUnionTypeDef? unionDef, bool isConst)
     {
         Kind = kind;
         Base = baseKind;
         Unsigned = unsigned;
         ArrayLen = arrayLen;
         Element = element;
+        StructDef = structDef;
+        UnionDef = unionDef;
         IsConst = isConst;
     }
 
@@ -40,49 +58,50 @@ public sealed class CType
     public bool Unsigned { get; }
     public int ArrayLen { get; }
     public CType? Element { get; }
+    public CStructTypeDef? StructDef { get; }
+    public CUnionTypeDef? UnionDef { get; }
     public bool IsConst { get; }
 
-    public static CType Void { get; } = new(CTypeKind.Void, CBaseKind.Void, false, 0, null, false);
-    public static CType Int { get; } = new(CTypeKind.Scalar, CBaseKind.Int, false, 0, null, false);
-    public static CType Short { get; } = new(CTypeKind.Scalar, CBaseKind.Short, false, 0, null, false);
-    public static CType Char { get; } = new(CTypeKind.Scalar, CBaseKind.Char, false, 0, null, false);
+    public static CType Void { get; } = new(CTypeKind.Void, CBaseKind.Void, false, 0, null, null, null, false);
+    public static CType Int { get; } = new(CTypeKind.Scalar, CBaseKind.Int, false, 0, null, null, null, false);
+    public static CType Short { get; } = new(CTypeKind.Scalar, CBaseKind.Short, false, 0, null, null, null, false);
+    public static CType Char { get; } = new(CTypeKind.Scalar, CBaseKind.Char, false, 0, null, null, null, false);
+    public static CType Float { get; } = new(CTypeKind.Scalar, CBaseKind.Float, false, 0, null, null, null, false);
 
     public static CType Scalar(CBaseKind baseKind, bool unsigned)
         => baseKind switch
         {
-            CBaseKind.Int => unsigned ? new CType(CTypeKind.Scalar, CBaseKind.Int, true, 0, null, false) : Int,
-            CBaseKind.Short => unsigned ? new CType(CTypeKind.Scalar, CBaseKind.Short, true, 0, null, false) : Short,
-            CBaseKind.Char => unsigned ? new CType(CTypeKind.Scalar, CBaseKind.Char, true, 0, null, false) : Char,
+            CBaseKind.Int => unsigned ? new CType(CTypeKind.Scalar, CBaseKind.Int, true, 0, null, null, null, false) : Int,
+            CBaseKind.Short => unsigned ? new CType(CTypeKind.Scalar, CBaseKind.Short, true, 0, null, null, null, false) : Short,
+            CBaseKind.Char => unsigned ? new CType(CTypeKind.Scalar, CBaseKind.Char, true, 0, null, null, null, false) : Char,
+            CBaseKind.Float => Float,
             _ => Void,
         };
 
     public static CType Pointer(CType element, bool isConst = false)
-        => new(CTypeKind.Pointer, CBaseKind.Void, false, 0, element, isConst);
+        => new(CTypeKind.Pointer, CBaseKind.Void, false, 0, element, null, null, isConst);
 
     public static CType Array(CType element, int len)
-        => new(CTypeKind.Array, CBaseKind.Void, false, len, element, false);
+        => new(CTypeKind.Array, CBaseKind.Void, false, len, element, null, null, false);
 
-    /// <summary>Apply a top-level const qualifier.</summary>
-    public CType AsConst()
-        => Kind == CTypeKind.Pointer
-            ? new CType(CTypeKind.Pointer, Base, Unsigned, ArrayLen, Element, true)
-            : Kind == CTypeKind.Array
-                ? new CType(CTypeKind.Array, Base, Unsigned, ArrayLen, Element, true)
-                : withConst(true);
+    public static CType Struct(CStructTypeDef def)
+        => new(CTypeKind.Struct, CBaseKind.Void, false, 0, null, def, null, false);
 
-    private CType withConst(bool isConst)
-        => new(Kind, Base, Unsigned, ArrayLen, Element, isConst);
+    public static CType Union(CUnionTypeDef def)
+        => new(CTypeKind.Union, CBaseKind.Void, false, 0, null, null, def, false);
 
     /// <summary>
     /// C-standard byte size: int/short = 2, char = 1, pointer = 2,
-    /// array = len × element. (Layout is uniformly 1 word/object; this is
-    /// the value <c>sizeof</c> reports — see implementation.md P3.5.)
+    /// float = 2, struct/union = ByteSize from the type definition.
+    /// Each struct/union field occupies one word.
     /// </summary>
     public int ByteSize => Kind switch
     {
         CTypeKind.Scalar => Base == CBaseKind.Char ? 1 : 2,
         CTypeKind.Pointer => 2,
         CTypeKind.Array => ArrayLen * Element!.ByteSize,
+        CTypeKind.Struct => StructDef!.ByteSize,
+        CTypeKind.Union => UnionDef!.ByteSize,
         _ => 0,
     };
 
@@ -94,12 +113,29 @@ public sealed class CType
             CTypeKind.Scalar => (Unsigned ? "unsigned " : "") + Base.ToString().ToLowerInvariant(),
             CTypeKind.Pointer => $"{Element!} *",
             CTypeKind.Array => $"{Element!} [{ArrayLen}]",
+            CTypeKind.Struct => $"struct {StructDef!.Name}",
+            CTypeKind.Union => $"union {UnionDef!.Name}",
             _ => "?",
         };
         if (IsConst)
             s = "const " + s;
         return s;
     }
+
+    /// <summary>Apply a top-level const qualifier.</summary>
+    public CType AsConst()
+        => Kind == CTypeKind.Pointer
+            ? new CType(CTypeKind.Pointer, Base, Unsigned, ArrayLen, Element, StructDef, UnionDef, true)
+            : Kind == CTypeKind.Array
+                ? new CType(CTypeKind.Array, Base, Unsigned, ArrayLen, Element, StructDef, UnionDef, true)
+                : Kind == CTypeKind.Struct
+                    ? new CType(CTypeKind.Struct, Base, Unsigned, ArrayLen, Element, StructDef, UnionDef, true)
+                    : Kind == CTypeKind.Union
+                        ? new CType(CTypeKind.Union, Base, Unsigned, ArrayLen, Element, StructDef, UnionDef, true)
+                        : withConst(true);
+
+    private CType withConst(bool isConst)
+        => new(Kind, Base, Unsigned, ArrayLen, Element, StructDef, UnionDef, isConst);
 }
 
 /// <summary>Binary operator kinds (the full core-subset operator set).</summary>
@@ -118,6 +154,71 @@ public enum BOp
 public enum UOp
 {
     Neg, Not, BitNot, AddrOf, Deref, PreInc, PreDec,
+    /// <summary>Convert a float (Q8.8 fixed-point) to int (truncation toward zero).</summary>
+    FloatToInt,
+    /// <summary>Convert an int to float (Q8.8 fixed-point).</summary>
+    IntToFloat,
+}
+
+/// <summary>Postfix <c>++</c> / <c>--</c>.</summary>
+public sealed class CPostfix : CExpr
+{
+    public CExpr Operand { get; init; } = null!;
+    public bool IsDec { get; init; }
+}
+
+public sealed class CBinary : CExpr
+{
+    public BOp Op { get; init; }
+    public CExpr Left { get; init; } = null!;
+    public CExpr Right { get; init; } = null!;
+}
+
+public sealed class CTernary : CExpr
+{
+    public CExpr Cond { get; init; } = null!;
+    public CExpr Then { get; init; } = null!;
+    public CExpr Else { get; init; } = null!;
+}
+
+public sealed class CCall : CExpr
+{
+    public CExpr Func { get; init; } = null!;
+    public List<CExpr> Args { get; init; } = new();
+}
+
+public sealed class CIndex : CExpr
+{
+    public CExpr Base { get; init; } = null!;
+    public CExpr Index { get; init; } = null!;
+}
+
+public sealed class CSizeof : CExpr
+{
+    /// <summary>Exactly one of Expr / Type is non-null.</summary>
+    public CExpr? Expr { get; init; }
+    public CType? Type { get; init; }
+}
+
+/// <summary>A brace-list initializer: <c>{ 1, 2, 3 }</c> (array elements).</summary>
+public sealed class CArrayInit : CExpr
+{
+    public List<CExpr> Items { get; init; } = new();
+}
+
+/// <summary>Struct/union member access: <c>base.field</c> or <c>ptr->field</c>.</summary>
+public sealed class CFieldAccess : CExpr
+{
+    public CExpr Base { get; init; } = null!;
+    public string FieldName { get; init; } = string.Empty;
+    public bool IsArrow { get; init; }
+}
+
+/// <summary>Explicit cast: <c>(float)expr</c> or <c>(int)expr</c>.</summary>
+public sealed class CCast : CExpr
+{
+    public CType TargetType { get; init; } = CType.Void;
+    public CExpr Expr { get; init; } = null!;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,6 +313,7 @@ public enum CLitKind
     Int,
     Char,
     String,
+    Float,
 }
 
 public sealed class CLit : CExpr
@@ -233,52 +335,6 @@ public sealed class CUnary : CExpr
     public CExpr Operand { get; init; } = null!;
 }
 
-/// <summary>Postfix <c>++</c> / <c>--</c>.</summary>
-public sealed class CPostfix : CExpr
-{
-    public CExpr Operand { get; init; } = null!;
-    public bool IsDec { get; init; }
-}
-
-public sealed class CBinary : CExpr
-{
-    public BOp Op { get; init; }
-    public CExpr Left { get; init; } = null!;
-    public CExpr Right { get; init; } = null!;
-}
-
-public sealed class CTernary : CExpr
-{
-    public CExpr Cond { get; init; } = null!;
-    public CExpr Then { get; init; } = null!;
-    public CExpr Else { get; init; } = null!;
-}
-
-public sealed class CCall : CExpr
-{
-    public CExpr Func { get; init; } = null!;
-    public List<CExpr> Args { get; init; } = new();
-}
-
-public sealed class CIndex : CExpr
-{
-    public CExpr Base { get; init; } = null!;
-    public CExpr Index { get; init; } = null!;
-}
-
-public sealed class CSizeof : CExpr
-{
-    /// <summary>Exactly one of Expr / Type is non-null.</summary>
-    public CExpr? Expr { get; init; }
-    public CType? Type { get; init; }
-}
-
-/// <summary>A brace-list initializer: <c>{ 1, 2, 3 }</c> (array elements).</summary>
-public sealed class CArrayInit : CExpr
-{
-    public List<CExpr> Items { get; init; } = new();
-}
-
 // ---------------------------------------------------------------------------
 // Top level
 // ---------------------------------------------------------------------------
@@ -293,6 +349,9 @@ public sealed record CFuncDef(string Name, CType ReturnType, List<CParam> Params
 
 public sealed record CParam(CType Type, string Name);
 
+/// <summary>A struct or union type definition at file scope.</summary>
+public sealed record CStructDefStmt(string Tag, CTypeKind Kind, List<CStructField> Fields, int Line);
+
 /// <summary>A global variable (optionally initialized).</summary>
 public sealed record CGlobalVar(CType Type, string Name, CExpr? Init, int Line);
 
@@ -301,4 +360,5 @@ public sealed class CProgram
 {
     public List<CFuncDef> Functions { get; } = new();
     public List<CGlobalVar> Globals { get; } = new();
+    public List<CStructDefStmt> StructDefs { get; } = new();
 }

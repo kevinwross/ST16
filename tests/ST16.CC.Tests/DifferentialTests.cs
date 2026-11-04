@@ -382,4 +382,106 @@ public class DifferentialTests
         Assert.Equal(MachineState.Halted, machine.State);
         Assert.True(compiled.Assembly.Words.Count > 0x0000);
     }
+
+    [Fact]
+    public void Struct_FieldAccess_StoreAndLoad()
+    {
+        // struct Point { int x; int y; };
+        // p.x = 10; p.y = 20; print "1020"
+        CcTestKit.ExpectOutput(
+            "struct Point { int x; int y; };\n" +
+            "int main()\n{\n" +
+            "    struct Point p;\n" +
+            "    p.x = 10;\n" +
+            "    p.y = 20;\n" +
+            "    putchar('0' + p.x / 10);\n" +
+            "    putchar('0' + p.x % 10);\n" +
+            "    putchar('0' + p.y / 10);\n" +
+            "    putchar('0' + p.y % 10);\n" +
+            "    return 0;\n" +
+            "}\n",
+            "1020");
+    }
+
+    [Fact]
+    public void Struct_PointerArrow_Access()
+    {
+        // struct Point { int x; int y; };
+        // struct Point p; p.x = 7; struct Point *q = &p; putchar('0' + q->x);
+        CcTestKit.ExpectOutput(
+            "struct Point { int x; int y; };\n" +
+            "int main()\n{\n" +
+            "    struct Point p;\n" +
+            "    p.x = 7;\n" +
+            "    struct Point *q = &p;\n" +
+            "    putchar('0' + q->x);\n" +
+            "    return 0;\n" +
+            "}\n",
+            "7");
+    }
+
+    [Fact]
+    public void Union_OverlayFields()
+    {
+        // union U { int a; char b; };
+        // u.a = 65; putchar(u.a);  → 'A' (same field works)
+        // u.b = 65; putchar(u.b);  → 'A' (char field)
+        CcTestKit.ExpectOutput(
+            "union U { int a; char b; };\n" +
+            "int main()\n{\n" +
+            "    union U u;\n" +
+            "    u.a = 65;\n" +
+            "    putchar(u.a);\n" +
+            "    return 0;\n" +
+            "}\n",
+            "A");
+    }
+
+    [Fact]
+    public void Union_CharField_Load()
+    {
+        // union U { int a; char b; };
+        // u.b = 65; putchar(u.b);  → 'A' (char field access)
+        CcTestKit.ExpectOutput(
+            "union U { int a; char b; };\n" +
+            "int main()\n{\n" +
+            "    union U u;\n" +
+            "    u.b = 65;\n" +
+            "    putchar(u.b);\n" +
+            "    return 0;\n" +
+            "}\n",
+            "A");
+    }
+
+    [Fact]
+    public void Float_Add_Sub_Cast()
+    {
+        // float a = 3.50; float b = 2.25; float c = a + b;
+        // int d = (int)c;  → 5 (3.50 + 2.25 = 5.75, truncated to 5)
+        CcTestKit.ExpectOutput(
+            "int main()\n{\n" +
+            "    float a = 3.50;\n" +
+            "    float b = 2.25;\n" +
+            "    float c = a + b;\n" +
+            "    int d = (int)c;\n" +
+            "    putchar('0' + d);\n" +
+            "    return 0;\n" +
+            "}\n",
+            "5");
+    }
+
+    [Fact]
+    public void Float_IntToFloat_ToInt_Roundtrip()
+    {
+        // (int)(float)7 == 7
+        CcTestKit.ExpectOutput(
+            "int main()\n{\n" +
+            "    int x = 7;\n" +
+            "    float f = (float)x;\n" +
+            "    int y = (int)f;\n" +
+            "    putchar('0' + y);\n" +
+            "    return 0;\n" +
+            "}\n",
+            "7");
+    }
 }

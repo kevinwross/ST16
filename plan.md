@@ -26,11 +26,14 @@ version and a changelog entry here.
 
 ## Phase 1 — ISA Specification
 
-**Status: complete (v1.0 draft).**
+**Status: complete (v1.0, extended to v1.1).**
 
-- [docs/ST16-ISA.md](docs/ST16-ISA.md) — normative v1.0 specification:
+- [docs/ST16-ISA.md](docs/ST16-ISA.md) — normative specification:
   machine model, memory map, encoding, all 37 instructions, fault model,
   I/O ports, assembly syntax, design notes, and the implementer summary (§12).
+  v1.1 adds: Q8.8 fixed-point float representation (§3.1), struct/union
+  word-level memory layout (§3.2), and updates to non-goals and extension
+  space (§11).
 - The spec's §12 normative summary is the acceptance baseline for every later
   phase.
 - Review amendment: operand and call stack depths raised from 16 to 32 slots
@@ -162,9 +165,12 @@ visible, and where the GUI's source view shows `.c` files instead of assembly.
     `continue`, `return`, `goto` (local labels only — useful and simple to
     lower).
   - **Not supported in v1** (each rejected with a clear, line-referenced
-    diagnostic): structs, unions, floats, variadics, preprocessor macros
-    (input is read as plain `.c`), multi-character literals, `long`/`double`
-    (mapped to a "not supported in ST16 profile" error).
+    diagnostic): variadics, preprocessor macros (input is read as plain `.c`),
+    multi-character literals, `long`/`double` (mapped to a "not supported in
+    ST16 profile" error).
+  - **v1.1 additions (compiler support, same toolchain):** `float` (Q8.8
+    fixed-point), `struct` / `union` types with word-level field layout, member
+    access (`.` / `->`), and cast expressions `(type)expr`.
 - **Code generation:**
   - Expression trees lower directly to stack ops — the teaching core of this
     phase; `-S` emits the intermediate `.asm` for inspection.
@@ -330,7 +336,6 @@ C program with `.c`-source highlighting.
 | Item | Why deferred |
 |---|---|
 | Trap vectors / exception handlers | Spec v1.1; fault model in v1 is halt-and-report |
-| Structs/unions/floats in `st16cc` | Core subset first; memory-layout teaching material grows a lot |
 | More I/O devices (timer, framebuffer) | Console ports are enough for phases 2–5 |
 | Byte addressing | Word-granular keeps the spec teachable; v1.1 candidate |
 | Multi-cycle / pipelined timing model | One instruction per cycle keeps cycle counting honest |

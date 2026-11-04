@@ -63,19 +63,19 @@ public class SemanticsTests
     }
 
     [Fact]
-    public void UnsupportedKeyword_Struct_IsRejected()
+    public void UnsupportedKeyword_Long_IsRejected()
     {
         CcTestKit.ExpectCompileError(
-            "struct point { int x; };\nint main()\n{\n    return 0;\n}\n",
+            "long x;\nint main()\n{\n    return 0;\n}\n",
             "not supported");
     }
 
     [Fact]
-    public void MemberAccess_IsRejected()
+    public void MemberAccess_OnNonStruct_IsRejected()
     {
         CcTestKit.ExpectCompileError(
             "int main()\n{\n    int *p;\n    return p->x;\n}\n",
-            "not supported");
+            "not a struct or union");
     }
 
     [Fact]

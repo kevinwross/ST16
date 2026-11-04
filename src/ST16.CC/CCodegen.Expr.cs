@@ -38,6 +38,12 @@ public partial class CCodegen
                 Mark(so.Line);
                 PushIntScalar(so.Type is not null ? so.Type.ByteSize : InferType(so.Expr!).ByteSize);
                 break;
+            case CFieldAccess fa:
+                EmitFieldAccess(fa);
+                break;
+            case CCast cst:
+                EmitCast(cst);
+                break;
             default:
                 throw new CCException(new CCDiagnostic(e.Line, 1, "unsupported expression form in code generation"));
         }
@@ -50,6 +56,11 @@ public partial class CCodegen
         {
             case CLitKind.Int:
             case CLitKind.Char:
+                PushIntScalar(lit.Value);
+                break;
+            case CLitKind.Float:
+                // Q8.8 fixed-point: the literal value is already the stored
+                // 16-bit representation.
                 PushIntScalar(lit.Value);
                 break;
             case CLitKind.String:
@@ -93,7 +104,7 @@ public partial class CCodegen
         }
         if (_globals.TryGetValue(id.Name, out var g) && g.Kind is CSymKind.Global)
         {
-            if (g.Type.Kind == CTypeKind.Array)
+            if (g.Type.Kind is CTypeKind.Array or CTypeKind.Struct or CTypeKind.Union)
             {
                 Push16(_globalAddrs[id.Name]);
             }
@@ -148,12 +159,107 @@ public partial class CCodegen
             _st.Op("ADD");
             return;
         }
-        if (InferType(baseExpr).Kind == CTypeKind.Array && baseExpr is CIdent id)
+        if (baseExpr is CIdent id)
         {
-            EmitIdentAddr(id);
-            return;
+            var t = InferType(baseExpr);
+            if (t.Kind is CTypeKind.Array or CTypeKind.Struct or CTypeKind.Union)
+            {
+                EmitIdentAddr(id);
+                return;
+            }
         }
         Emit(baseExpr); // a pointer value is the address itself
+    }
+
+    // ---------------------------------------------------------------------
+    // Field access (struct/union member)
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Emits a field access <c>base.field</c> or <c>ptr->field</c>. Leaves the
+    /// field's VALUE on top (loads from memory).
+    ///
+    /// Layout: each field occupies one word. For a struct, the field's address
+    /// is base_address + field.Offset. For a union, all fields are at offset 0.
+    /// </summary>
+    private void EmitFieldAccess(CFieldAccess fa)
+    {
+        Mark(fa.Line);
+
+        // Compute the base address.
+        if (fa.IsArrow)
+        {
+            // ptr->field: the base expression is a pointer value; it IS the
+            // address of the struct/union.
+            Emit(fa.Base);
+        }
+        else
+        {
+            // base.field: the base is a struct/union object; get its address.
+            EmitBaseAddr(fa.Base);
+        }
+
+        // Add the field offset (in words). Each field is one word.
+        var fieldType = InferType(fa);
+        int offset = FieldOffset(fa);
+        if (offset != 0)
+        {
+            _st.Push($"PUSH {offset}");
+            _st.Op("ADD");
+        }
+
+        _st.Load();
+        AdjustCharLoad(fieldType);
+    }
+
+    private int FieldOffset(CFieldAccess fa)
+    {
+        var baseType = InferType(fa.Base);
+        CType structType = baseType.Kind == CTypeKind.Pointer ? baseType.Element! : baseType;
+        var def = structType.Kind == CTypeKind.Struct ? (object)structType.StructDef! : structType.UnionDef!;
+        var fields = def is CStructTypeDef sd ? sd.Fields : ((CUnionTypeDef)def).Fields;
+        var f = fields.FirstOrDefault(x => x.Name == fa.FieldName)
+            ?? throw new CCException(new CCDiagnostic(fa.Line, 1, $"no field '{fa.FieldName}'"));
+        return f.Offset;
+    }
+
+    // ---------------------------------------------------------------------
+    // Cast expressions
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Emits a cast <c>(targetType)expr</c>. Leaves the converted value on top.
+    /// Supported: scalar↔scalar (int↔float Q8.8, int↔pointer, etc.).
+    /// </summary>
+    private void EmitCast(CCast cst)
+    {
+        Mark(cst.Line);
+        Emit(cst.Expr);
+
+        var src = InferType(cst.Expr);
+        var dst = cst.TargetType;
+
+        // Float → int: Q8.8 value >> 8 (arithmetic shift right, truncation
+        // toward zero for the SLR semantics of the ST16).
+        if (src.Base == CBaseKind.Float && dst.Base == CBaseKind.Int)
+        {
+            _st.Push("PUSH 8");
+            _st.Swap();
+            _st.Op("SLR");
+            return;
+        }
+
+        // Int → float: value << 8.
+        if (src.Base == CBaseKind.Int && dst.Base == CBaseKind.Float)
+        {
+            _st.Push("PUSH 8");
+            _st.Swap();
+            _st.Op("SLL");
+            return;
+        }
+
+        // Same-type or int/pointer casts: no-op (the value is already the
+        // right width; the type system ensures compatibility).
     }
 
     // ---------------------------------------------------------------------
@@ -244,6 +350,19 @@ public partial class CCodegen
                 Mark(line);
                 Emit(u.Operand); // the pointer value is the address
                 break;
+            case CFieldAccess fa:
+                Mark(line);
+                if (fa.IsArrow)
+                    Emit(fa.Base); // pointer value IS the address
+                else
+                    EmitBaseAddr(fa.Base); // address of the struct/union object
+                int faOffset = FieldOffset(fa);
+                if (faOffset != 0)
+                {
+                    _st.Push($"PUSH {faOffset}");
+                    _st.Op("ADD");
+                }
+                break;
             default:
                 throw new CCException(new CCDiagnostic(line, 1,
                     "'&', '++' and '--' apply only to variables, array elements, and pointers"));
@@ -280,7 +399,6 @@ public partial class CCodegen
         {
             case BOp.Add:
             case BOp.Sub:
-            case BOp.Mul:
             case BOp.And:
             case BOp.Or:
             case BOp.Xor:
@@ -289,28 +407,149 @@ public partial class CCodegen
                 _st.Op(BinaryMnemonic(b.Op));
                 break;
 
+            case BOp.Mul:
+            {
+                // Q8.8 fixed-point: (a * b) >> 8. For int*int, plain MUL.
+                var lt = InferType(b.Left);
+                var rt = InferType(b.Right);
+                Emit(b.Left);
+                Emit(b.Right);
+                if (lt.Base == CBaseKind.Float || rt.Base == CBaseKind.Float)
+                {
+                    _st.Op("MUL");          // [a*b] (Q16.16)
+                    _st.Push("PUSH 8");
+                    _st.Swap();
+                    _st.Op("SLR");          // >> 8 → Q8.8
+                }
+                else
+                {
+                    _st.Op("MUL");
+                }
+                break;
+            }
+
             case BOp.Div:
             case BOp.Mod:
             {
                 // The VM's DIV/MOD are signed-only; if either operand is
                 // unsigned, values in 0x8000..0xFFFF would wrap to negative
-                // — compute with a software loop instead (quotient kept in
-                // the scratch cell; [u, v] → [r, v] + q in the cell).
+                // — compute with a software loop instead.
                 bool unsignedOp = InferType(b.Left).Unsigned
                     || InferType(b.Right).Unsigned;
                 Emit(b.Left);
                 Emit(b.Right);
                 if (!unsignedOp)
                 {
-                    _st.Op(BinaryMnemonic(b.Op));
+                    // Q8.8 division: (a << 8) / b. Need to shift left before
+                    // dividing, but only when both operands are float.
+                    var lt2 = InferType(b.Left);
+                    var rt2 = InferType(b.Right);
+                    if (lt2.Base == CBaseKind.Float && rt2.Base == CBaseKind.Float)
+                    {
+                        // a is on top, b is below... wait, after L; R:
+                        // [a, b] where b is on top. We need (a << 8) / b.
+                        // Shift a left by 8, but a is second. We need to
+                        // manipulate: [a, b] → [a, 8] → swap → [8, a] → SLL
+                        // gives [a<<8], then we need b back.
+                        // Actually, the stack is [a, b] with b on top.
+                        // We want [a<<8, b]. Let's do:
+                        // DUP (on b) → [a, b, b]
+                        // PUSH16 addr of b's copy... this is getting complex.
+                        // Simpler: [a, b] → DUP (top=b) → [a, b, b]
+                        // SWAP → [a, b, b] ... hmm
+                        // Let's just use the standard approach:
+                        // [a, b] → we need to shift a (second) left by 8
+                        // _st.Dup() → [a, b, b]  (dup top = b)
+                        // _st.Swap() → [a, b, b] (swap top two: [a, b, b] → [a, b, b] no change... wait)
+                        // Actually after [a, b] with b on top:
+                        // _st.Dup() → [a, b, b]
+                        // _st.Swap() → [a, b, b] (swaps b and b, no change)
+                        // This doesn't help.
+                        //
+                        // Better approach: compute (a << 8) / b:
+                        // [a, b] → we want to shift the second element (a)
+                        // Store b temporarily? That's complex.
+                        //
+                        // Simplest: use the stack operations we have:
+                        // [a, b]  (b on top)
+                        // DUP → [a, b, b]
+                        // ROT → [b, a, b]  (rotate: third goes to top)
+                        // Hmm, ROT might not exist.
+                        //
+                        // Let's use a different approach: we can use the
+                        // fact that after Emit(b.Left); Emit(b.Right), we
+                        // have [a, b] with b on top.
+                        // We need [a<<8, b] to then DIV.
+                        //
+                        // _st.Dup() → [a, b, b]
+                        // _st.Swap() → [a, b, b] (swap b and b, no-op)
+                        // 
+                        // Actually, let me just store b, shift a, then reload b.
+                        // Or better: compute (a * 256) / b using shifts.
+                        // We can do: [a, b] → DUP (b) → SWAP → [a, b, b]...
+                        // 
+                        // Actually, the simplest correct approach:
+                        // After [a, b] (b on top):
+                        // _st.Dup() → [a, b, b]  
+                        // We want to shift a (second from top) left by 8.
+                        // PUSH 8 → [a, b, b, 8]
+                        // SWAP → [a, b, 8, b]
+                        // Hmm, this isn't working either.
+                        //
+                        // Let me use a different strategy: compute (a << 8) / b
+                        // by first saving b to a temporary, then shifting a.
+                        // Actually, we can just do it step by step:
+                        // [a, b] → we want to shift a left by 8
+                        // Push 8, then we need to apply SLL to a (not b).
+                        // SLL takes value on top, count second.
+                        // So we need [8, a] → SLL → [a<<8]
+                        // But b is between us and a.
+                        //
+                        // Let's use the stack more carefully:
+                        // [a, b] (b on top)
+                        // DUP → [a, b, b]  (copy b)
+                        // Now we want to get to [8, a] to shift a.
+                        // But we have [a, b, b] with the second b on top.
+                        // We need to remove the top b and get a on top with 8 below it.
+                        // This requires stack manipulation we don't easily have.
+                        //
+                        // Alternative: just call a helper or use a scratch cell.
+                        // For now, let's do float division differently:
+                        // We'll compute (a / b) << 8 instead, which is NOT the same
+                        // as (a << 8) / b for Q8.8. But for simple cases it works
+                        // approximately.
+                        //
+                        // Actually, the correct Q8.8 division is (a << 8) / b.
+                        // Let's use a scratch approach: store b, shift a, reload b.
+                        // We'll use _scratchAddr for this.
+                        //
+                        // [a, b]
+                        // PUSH16 scratch; Store → [a]  (b saved in scratch)
+                        // PUSH 8; Swap; SLL → [a<<8]   (wait, after store we have [a])
+                        // PUSH16 scratch; Load → [a<<8, b]
+                        // DIV → [(a<<8)/b]
+                        //
+                        // That's clean! Let me do that.
+                        
+                        _st.Push($"PUSH16 0x{_scratchAddr:X4}");   // [a, b, addr]
+                        _st.Store();                                // [a]     (b saved)
+                        _st.Push("PUSH 8");                         // [a, 8]
+                        _st.Swap();                                 // [8, a]
+                        _st.Op("SLL");                              // [a<<8]
+                        _st.Push($"PUSH16 0x{_scratchAddr:X4}");   // [a<<8, addr]
+                        _st.Load();                                 // [a<<8, b]
+                        _st.Op("DIV");                              // [(a<<8)/b]
+                    }
+                    else
+                    {
+                        _st.Op(BinaryMnemonic(b.Op));
+                    }
                     break;
                 }
                 EmitUnsignedDivMod(b.Op == BOp.Div);
                 break;
             }
 
-            // SLL/SLR (spec §5.2): value on top, count second — after L; R
-            // the count is on top, so SWAP before the shift.
             case BOp.Shl:
                 Emit(b.Left);
                 Emit(b.Right);
@@ -551,7 +790,7 @@ public partial class CCodegen
         // The callee's full frame (params + locals + spill budget — the
         // slot list includes the parameters): the prologue lowers SP by
         // exactly this, so old-SP − (frame − i) is the callee's slot i.
-        int calleeFrame = _locals[name].Count + SpillBudget;
+        int calleeFrame = TotalSlots(name) + SpillBudget;
 
         // Arguments: the caller stores each into the callee's frame
         // (argument i at old-SP − (calleeFrame − i)), so the callee finds
@@ -582,6 +821,8 @@ public partial class CCodegen
             case CLit lit:
                 if (lit.Kind == CLitKind.Char)
                     return CType.Char;
+                if (lit.Kind == CLitKind.Float)
+                    return CType.Float;
                 // Natural type of an integer literal: values that only fit
                 // in 0x8000..0xFFFF are unsigned (signed 16-bit tops out
                 // at 0x7FFF) — this drives unsigned comparison/division.
@@ -618,6 +859,15 @@ public partial class CCodegen
                 return CType.Int;
             case CSizeof:
                 return CType.Int;
+            case CFieldAccess fa:
+                // The field's type is looked up from the struct/union definition.
+                var ftBase = InferType(fa.Base);
+                var ftStruct = ftBase.Kind == CTypeKind.Pointer ? ftBase.Element! : ftBase;
+                var ftDef = ftStruct.Kind == CTypeKind.Struct ? (object)ftStruct.StructDef! : ftStruct.UnionDef!;
+                var ftFields = ftDef is CStructTypeDef ftSd ? ftSd.Fields : ((CUnionTypeDef)ftDef).Fields;
+                return ftFields.First(x => x.Name == fa.FieldName).Type;
+            case CCast cst:
+                return cst.TargetType;
             default:
                 return CType.Int;
         }
