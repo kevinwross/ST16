@@ -1,0 +1,10 @@
+{
+  "template": "DevTemplate",
+  "version": "0.3.0",
+  "syncedAt": "2026-11-07",
+  "targets": [
+    "windows",
+    "linux",
+    "linux-arm64"
+  ]
+}
