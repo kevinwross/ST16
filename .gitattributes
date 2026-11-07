@@ -1,0 +1,29 @@
+# Normalize on commit so behavior does not depend on each contributor's core.autocrlf.
+* text=auto
+
+# Shell scripts must keep LF; a CRLF shebang fails on Linux and WSL.
+*.sh    text eol=lf
+*.bash  text eol=lf
+
+# Windows-only scripts must keep CRLF.
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Never guess at binary content.
+*.png   binary
+*.jpg   binary
+*.gif   binary
+*.ico   binary
+*.zip   binary
+*.gz    binary
+*.pdf   binary
+*.woff  binary
+*.woff2 binary
+
+# Lockfiles are LF regardless of platform.
+package-lock.json  text eol=lf
+pnpm-lock.yaml     text eol=lf
+yarn.lock          text eol=lf
+poetry.lock        text eol=lf
+Cargo.lock         text eol=lf

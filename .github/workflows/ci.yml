@@ -1,0 +1,94 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows (full solution)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # The full solution includes ST16.Gui (net10.0-windows), which only builds here.
+      - run: dotnet build ST16.slnx --nologo
+      - run: dotnet test ST16.slnx --nologo --no-build
+
+  linux:
+    name: Linux x64 (portable projects)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # ST16.slnx cannot build here: it references the WPF project. ST16.Portable.slnx is the
+      # same solution minus the Windows-only projects.
+      - name: build portable solution
+        run: dotnet build ST16.Portable.slnx --nologo
+
+      - name: test portable solution
+        run: dotnet test ST16.Portable.slnx --nologo --no-build
+
+      # Guards the one invariant the two solution files cannot enforce themselves: every
+      # portable project must also appear in the full solution, or Windows silently stops
+      # building and testing it.
+      - name: portable projects are a subset of the full solution
+        run: |
+          grep -o 'Path="[^"]*"' ST16.Portable.slnx | sort > /tmp/portable.txt
+          grep -o 'Path="[^"]*"' ST16.slnx | sort > /tmp/full.txt
+          missing=$(comm -23 /tmp/portable.txt /tmp/full.txt || true)
+          if [ -n "$missing" ]; then
+            echo "Projects in ST16.Portable.slnx but missing from ST16.slnx:"
+            echo "$missing"
+            exit 1
+          fi
+          echo "OK: $(wc -l < /tmp/portable.txt) portable project(s), all present in ST16.slnx"
+
+  baseline:
+    name: Agent baseline in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/DevTemplate
+          path: .devtemplate
+          continue-on-error: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Fails when AGENTS.md's managed block has drifted from the DevTemplate source,
+      # which is the only way a project silently runs on stale rules.
+      - name: check baseline drift
+        run: |
+          if [ ! -f .devtemplate/scripts/sync.mjs ]; then
+            echo "DevTemplate not reachable from this workflow; skipping baseline check."
+            exit 0
+          fi
+          node .devtemplate/scripts/sync.mjs --check .

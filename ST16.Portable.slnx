@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ST16.VM/ST16.VM.csproj" />
+    <Project Path="src/ST16.App/ST16.App.csproj" />
+    <Project Path="src/ST16.Assembler/ST16.Assembler.csproj" />
+    <Project Path="src/ST16.Disassembler/ST16.Disassembler.csproj" />
+    <Project Path="src/ST16.CC/ST16.CC.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ST16.VM.Tests/ST16.VM.Tests.csproj" />
+    <Project Path="tests/ST16.Assembler.Tests/ST16.Assembler.Tests.csproj" />
+    <Project Path="tests/ST16.CC.Tests/ST16.CC.Tests.csproj" />
+    <Project Path="tests/ST16.Samples.Tests/ST16.Samples.Tests.csproj" />
+  </Folder>
+</Solution>

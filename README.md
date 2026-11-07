@@ -29,6 +29,18 @@ dotnet test  ST16.slnx --nologo
 The codebase is never left with failing tests; every task lands with the full
 suite green.
 
+`ST16.slnx` includes the WPF debugger and therefore builds only on Windows.
+Elsewhere — Linux, or the Raspberry Pi — use the portable solution, which is
+the same project set minus `ST16.Gui` and `ST16.Gui.Tests`:
+
+```sh
+dotnet build ST16.Portable.slnx --nologo
+dotnet test  ST16.Portable.slnx --nologo
+```
+
+CI runs both: the full solution on `windows-latest`, the portable solution on
+`ubuntu-latest`.
+
 ## The st16 executable
 
 All functionality ships in one executable, `st16` (in development:
@@ -50,6 +62,8 @@ ST16/
 ├── README.md
 ├── plan.md
 ├── implementation.md
+├── ST16.slnx           # all projects, including the WPF GUI (Windows)
+├── ST16.Portable.slnx  # the same minus the WPF projects (Linux, ARM64)
 ├── docs/ST16-ISA.md
 ├── src/
 │   ├── ST16.VM/        # VM engine + debug hooks (no UI, no external packages)
